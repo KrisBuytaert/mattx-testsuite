@@ -6,13 +6,12 @@ set -euo pipefail
 DISTRO="${1:?Usage: $0 <alma|deb>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
+source "$SCRIPT_DIR/sources.conf"
 
 case "$DISTRO" in
     alma) NODE1="almanode1" ;;
     deb)  NODE1="debnode1"  ;;
 esac
-
-MATTX_SRC="$(cd "$TEST_DIR/.." && pwd)/"
 
 init_cluster "$DISTRO"
 

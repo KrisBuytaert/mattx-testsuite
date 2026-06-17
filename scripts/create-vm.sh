@@ -28,7 +28,7 @@ case "$DISTRO" in
         VM_NAME="debnode${NODE_NUM}"
         BASE_URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
         BASE_IMAGE="$BASE_CACHE/debian-13-base.qcow2"
-        OS_VARIANT="debian12"
+        OS_VARIANT="debian13"
         case "$NODE_NUM" in
             1) MAC="52:54:00:0b:00:21" ;;
             2) MAC="52:54:00:0b:00:22" ;;
@@ -120,7 +120,7 @@ virt-install \
     --import \
     --os-variant  "$OS_VARIANT" \
     --network     "network=mattx-test,mac=$MAC" \
-    --graphics    none \
+    --video virtio \
     --noautoconsole \
     --wait        0
 
