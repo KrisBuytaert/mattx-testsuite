@@ -1,7 +1,6 @@
 #!/bin/bash
 # run-tests.sh <alma|deb>
 set -euo pipefail
-
 DISTRO="${1:?Usage: $0 <alma|deb>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
@@ -109,54 +108,49 @@ PASS=0; FAIL=0
 pass() { echo "[PASS] $1"; PASS=$((PASS+1)); }
 fail() { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }
 
-# Print where a named process is currently running, with ps evidence.
-show_location() {
-    local name="$1" pid="$2" node="$3"
-    local ip; ip="$(node_ip "$node")"
-    echo "  ► $name [PID $pid] is running on $node ($ip):"
-    run_on "$node" "ps -p $pid -o pid,user,stat,cmd --no-headers 2>/dev/null \
-                    || ps aux | awk -v p=$pid '\$2==p{print \"   \"\$0}' \
-                    || echo '   (not found in ps — may have already exited)'"
+# ---- Diagnostic helpers ----
+
+dump_log() {
+    local node="$1" logfile="$2"
+    echo "  [$node] $logfile:"
+    run_on "$node" "cat '$logfile' 2>/dev/null || echo '  (empty or not found)'" \
+        | sed 's/^/    /'
 }
 
-# Print the /proc/mattx/remote entry for a PID (home-node side after forward migration).
-# Format: PID:NODEID — one line per exported process.
-show_deputy() {
-    local pid="$1" node="$2"
-    local remote
-    remote=$(run_on "$node" "cat /proc/mattx/remote 2>/dev/null || echo ''")
-    echo "  Deputy export tracker on $node (/proc/mattx/remote):"
-    local entry; entry=$(echo "$remote" | grep "^${pid}:" || true)
-    if [ -n "$entry" ]; then
-        echo "   $entry  ← Deputy PID $pid is exported to node $(echo "$entry" | cut -d: -f2)"
-    else
-        echo "   (PID $pid not found — migration may have failed or process already returned)"
-    fi
+dump_proc_mattx() {
+    local node="$1"
+    for f in nodes guests remote; do
+        echo "  [$node] /proc/mattx/$f:"
+        run_on "$node" "cat /proc/mattx/$f 2>/dev/null || echo '  (not found)'" \
+            | sed 's/^/    /'
+    done
 }
 
-# Announce and execute a migration.
-do_migrate() {
-    local name="$1" pid="$2" from="$3" to="$4" to_id="$5"
-    echo ""
-    echo "  ─────────────────────────────────────────────────────"
-    echo "  Starting migration of $name [PID $pid]"
-    echo "    from : $from ($(node_ip "$from"))"
-    echo "    to   : $to   ($(node_ip "$to"))  [node ID $to_id]"
-    echo "  ─────────────────────────────────────────────────────"
-    run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
+dump_dmesg() {
+    local node="$1" lines="${2:-50}"
+    echo "  [$node] dmesg (last $lines lines):"
+    run_on "$node" "sudo dmesg | tail -$lines" | sed 's/^/    /'
 }
 
 check_no_oops() {
     local node="$1"
-    if run_on "$node" "sudo dmesg" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
+    local out
+    out=$(run_on "$node" "sudo dmesg")
+    if echo "$out" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
         fail "kernel oops on $node"
+        echo "  [$node] oops context:"
+        echo "$out" | grep -A 10 "Oops\|BUG: unable to handle\|kernel BUG" | sed 's/^/    /'
         return 1
     fi
     return 0
 }
 
+migrate() {
+    local node="$1" pid="$2" target="$3"
+    run_on "$node" "echo 'migrate ${pid} ${target}' | sudo tee /proc/mattx/admin > /dev/null"
+}
+
 # ---- Cleanup stale test processes ----
-echo "[setup] cleaning up stale test processes..."
 run_on "$NODE1" "pkill migtest 2>/dev/null || true"
 run_on "$NODE2" "pkill migtest 2>/dev/null || true"
 run_on "$NODE1" "pkill servertestpoll 2>/dev/null || true"
@@ -164,63 +158,84 @@ run_on "$NODE2" "pkill servertestpoll 2>/dev/null || true"
 sleep 1
 
 # ---- Pre-flight ----
-echo ""
 echo "=== Pre-flight: cluster state ==="
+
+# /proc/mattx/nodes marks the local node with "(Local)" on the same line.
+# Format: "<id> (Local)\t<ip>\t<cpu>\t<mem>"
 NODE1_ID=$(run_on "$NODE1" "cat /proc/mattx/nodes" | awk '/\(Local\)/{print $1}') || {
-    fail "pre-flight: cannot read /proc/mattx/nodes on $NODE1"; exit 1
+    fail "pre-flight: cannot read /proc/mattx/nodes on $NODE1"
+    dump_dmesg "$NODE1" 30
+    exit 1
 }
 NODE2_ID=$(run_on "$NODE2" "cat /proc/mattx/nodes" | awk '/\(Local\)/{print $1}') || {
-    fail "pre-flight: cannot read /proc/mattx/nodes on $NODE2"; exit 1
+    fail "pre-flight: cannot read /proc/mattx/nodes on $NODE2"
+    dump_dmesg "$NODE2" 30
+    exit 1
 }
-[ -n "$NODE1_ID" ] || { fail "pre-flight: could not determine node ID for $NODE1"; exit 1; }
-[ -n "$NODE2_ID" ] || { fail "pre-flight: could not determine node ID for $NODE2"; exit 1; }
+
+[ -n "$NODE1_ID" ] || { fail "pre-flight: could not determine node ID for $NODE1"; dump_proc_mattx "$NODE1"; exit 1; }
+[ -n "$NODE2_ID" ] || { fail "pre-flight: could not determine node ID for $NODE2"; dump_proc_mattx "$NODE2"; exit 1; }
 
 run_on "$NODE1" "cat /proc/mattx/nodes" | grep -qw "$NODE2_ID" || {
-    fail "pre-flight: $NODE1 (ID=$NODE1_ID) does not see $NODE2 (ID=$NODE2_ID) in cluster"; exit 1
+    fail "pre-flight: $NODE1 (ID=$NODE1_ID) does not see $NODE2 (ID=$NODE2_ID) in cluster"
+    dump_proc_mattx "$NODE1"
+    dump_proc_mattx "$NODE2"
+    dump_dmesg "$NODE1" 20
+    dump_dmesg "$NODE2" 20
+    exit 1
 }
-echo "  Cluster OK"
-echo "    $NODE1: ID=$NODE1_ID  IP=$(node_ip "$NODE1")"
-echo "    $NODE2: ID=$NODE2_ID  IP=$(node_ip "$NODE2")"
+echo "cluster OK — $NODE1 ID=$NODE1_ID  $NODE2 ID=$NODE2_ID"
 
 # ---- Test 1: Basic forward + return migration ----
 _FAIL_T1=$FAIL
 echo ""
 echo "=== Test 1: Basic migration (migtest) ==="
-
 MGR=$(run_on "$NODE1" "migtest &>/tmp/migtest.log & echo \$!")
 sleep 2
-PID=$(run_on "$NODE1" "pgrep -P $MGR" || true)
-[ -n "$PID" ] || { fail "test1: migtest worker did not start"; run_on "$NODE1" "kill $MGR 2>/dev/null||true"; }
+PID=$(run_on "$NODE1" "pgrep -P $MGR 2>/dev/null || true")
+if [ -z "$PID" ]; then
+    fail "test1: migtest worker did not start"
+    dump_log "$NODE1" /tmp/migtest.log
+    run_on "$NODE1" "kill $MGR 2>/dev/null || true"
+else
+    migrate "$NODE1" "$PID" "$NODE2_ID"
+    sleep 3
 
-echo ""
-show_location "migtest" "$PID" "$NODE1"
+    if run_on "$NODE1" "cat /proc/mattx/guests" | grep -q "$PID"; then
+        pass "test1: Deputy present on $NODE1"
+    else
+        fail "test1: Deputy missing on $NODE1"
+        dump_proc_mattx "$NODE1"
+        dump_log "$NODE1" /tmp/migtest.log
+        dump_dmesg "$NODE1" 50
+    fi
 
-do_migrate "migtest" "$PID" "$NODE1" "$NODE2" "$NODE2_ID"
-sleep 3
+    if run_on "$NODE2" "ps aux" | grep -q "[m]igtest"; then
+        pass "test1: Surrogate running on $NODE2"
+    else
+        fail "test1: migtest not on $NODE2"
+        dump_proc_mattx "$NODE2"
+        dump_log "$NODE1" /tmp/migtest.log
+        dump_dmesg "$NODE1" 50
+        dump_dmesg "$NODE2" 50
+    fi
 
-echo ""
-echo "  After forward migration:"
-show_deputy "$PID" "$NODE1"
-show_location "migtest (Surrogate)" "$PID" "$NODE2"
+    sleep 5
+    migrate "$NODE1" "$PID" "home"
+    sleep 3
 
-run_on "$NODE1" "cat /proc/mattx/remote" | grep -q "^${PID}:" && \
-    pass "test1: Deputy present on $NODE1 (/proc/mattx/remote)" || fail "test1: Deputy missing on $NODE1"
+    if run_on "$NODE1" "ps aux" | grep -q "[m]igtest"; then
+        pass "test1: migtest returned to $NODE1"
+    else
+        fail "test1: migtest not back on $NODE1"
+        dump_proc_mattx "$NODE1"
+        dump_log "$NODE1" /tmp/migtest.log
+        dump_dmesg "$NODE1" 50
+        dump_dmesg "$NODE2" 50
+    fi
 
-run_on "$NODE2" "ps aux" | grep -q "[m]igtest" && \
-    pass "test1: Surrogate running on $NODE2" || fail "test1: migtest not on $NODE2"
-
-sleep 5
-do_migrate "migtest" "$PID" "$NODE1" "$NODE1" "home"
-sleep 3
-
-echo ""
-echo "  After return migration:"
-show_location "migtest" "$PID" "$NODE1"
-
-run_on "$NODE1" "ps aux" | grep -q "[m]igtest" && \
-    pass "test1: migtest returned to $NODE1" || fail "test1: migtest not back on $NODE1"
-
-run_on "$NODE1" "kill $MGR 2>/dev/null || true"
+    run_on "$NODE1" "kill $MGR 2>/dev/null || true"
+fi
 check_no_oops "$NODE1" && pass "test1: no oops on $NODE1"
 check_no_oops "$NODE2" && pass "test1: no oops on $NODE2"
 [ "$FAIL" -gt "$_FAIL_T1" ] && { repro_setup; repro_test1; }
@@ -229,44 +244,41 @@ check_no_oops "$NODE2" && pass "test1: no oops on $NODE2"
 _FAIL_T2=$FAIL
 echo ""
 echo "=== Test 2: Network wormhole (servertestpoll) ==="
-
 SERVER_PID=$(run_on "$NODE1" "servertestpoll &>/tmp/server.log & echo \$!")
 sleep 2
 
 NODE1_IP="$(node_ip "$NODE1")"
-echo ""
-show_location "servertestpoll" "$SERVER_PID" "$NODE1"
-
-echo "  Checking TCP reachability on $NODE1_IP:8080 before migration..."
-run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null" && \
-    pass "test2: server reachable on $NODE1 before migration" || \
-    fail "test2: server not reachable before migration"
-
-do_migrate "servertestpoll" "$SERVER_PID" "$NODE1" "$NODE2" "$NODE2_ID"
-sleep 5
-
-echo ""
-echo "  After migration:"
-show_deputy "$SERVER_PID" "$NODE1"
-show_location "servertestpoll (Surrogate)" "$SERVER_PID" "$NODE2"
-
-MIGRATED=0
-if run_on "$NODE2" "ps aux" | grep -q "[s]ervertestpoll"; then
-    pass "test2: Surrogate running on $NODE2"
-    MIGRATED=1
+if run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null"; then
+    pass "test2: server reachable on $NODE1 before migration"
 else
-    fail "test2: servertestpoll not on $NODE2"
-    echo "  dmesg tail on $NODE1 (migration diagnostics):"
-    run_on "$NODE1" "sudo dmesg | tail -15" | sed 's/^/    /' || true
+    fail "test2: server not reachable before migration"
+    dump_log "$NODE1" /tmp/server.log
+    dump_dmesg "$NODE1" 30
 fi
 
-if [ "$MIGRATED" -eq 1 ]; then
-    echo "  Checking TCP reachability on $NODE1_IP:8080 through wormhole..."
-    run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null" && \
-        pass "test2: wormhole still serves on $NODE1 IP ($NODE1_IP:8080)" || \
-        fail "test2: wormhole broken — $NODE1_IP:8080 not reachable after migration"
+migrate "$NODE1" "$SERVER_PID" "$NODE2_ID"
+sleep 5
+
+if run_on "$NODE2" "ps aux" | grep -q "[s]ervertestpoll"; then
+    pass "test2: Surrogate on $NODE2"
 else
-    echo "  Skipping wormhole nc check — migration did not succeed (result would be a false positive)"
+    fail "test2: servertestpoll not on $NODE2"
+    dump_proc_mattx "$NODE1"
+    dump_proc_mattx "$NODE2"
+    dump_log "$NODE1" /tmp/server.log
+    dump_dmesg "$NODE1" 50
+    dump_dmesg "$NODE2" 50
+fi
+
+if run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null"; then
+    pass "test2: wormhole still serves on $NODE1 IP"
+else
+    fail "test2: wormhole broken"
+    dump_proc_mattx "$NODE1"
+    dump_proc_mattx "$NODE2"
+    dump_log "$NODE1" /tmp/server.log
+    dump_dmesg "$NODE1" 50
+    dump_dmesg "$NODE2" 50
 fi
 
 run_on "$NODE1" "kill $SERVER_PID 2>/dev/null || true"
@@ -278,40 +290,45 @@ check_no_oops "$NODE2" && pass "test2: no oops on $NODE2"
 _FAIL_T3=$FAIL
 echo ""
 echo "=== Test 3: Pingpong (5 cycles) ==="
-
 STRESS_MGR=$(run_on "$NODE1" "migtest &>/tmp/pingpong.log & echo \$!")
 sleep 2
 STRESS_PID=$(run_on "$NODE1" "pgrep -P $STRESS_MGR")
 
-echo ""
-show_location "migtest" "$STRESS_PID" "$NODE1"
-
+TEST3_OK=1
 for i in $(seq 1 5); do
-    echo ""
-    echo "  -- Cycle $i/5 --"
-    do_migrate "migtest" "$STRESS_PID" "$NODE1" "$NODE2" "$NODE2_ID"
-    sleep 6
-    if run_on "$NODE2" "ps aux" | grep -q "[m]igtest"; then
-        show_location "migtest (Surrogate)" "$STRESS_PID" "$NODE2"
-        pass "test3: cycle $i forward — migtest on $NODE2"
-    else
-        fail "test3: lost at cycle $i (forward migration)"
+    migrate "$NODE1" "$STRESS_PID" "$NODE2_ID"; sleep 6
+    if ! run_on "$NODE2" "ps aux" | grep -q "[m]igtest"; then
+        fail "test3: lost at cycle $i (forward)"
+        dump_proc_mattx "$NODE1"
+        dump_proc_mattx "$NODE2"
+        dump_log "$NODE1" /tmp/pingpong.log
+        dump_dmesg "$NODE1" 50
+        dump_dmesg "$NODE2" 50
+        TEST3_OK=0
         break
     fi
-
-    do_migrate "migtest" "$STRESS_PID" "$NODE1" "$NODE1" "home"
-    sleep 6
-    if run_on "$NODE1" "ps aux" | grep -q "[m]igtest"; then
-        show_location "migtest" "$STRESS_PID" "$NODE1"
-        pass "test3: cycle $i return — migtest back on $NODE1"
-    else
-        fail "test3: lost at cycle $i (return migration)"
+    migrate "$NODE1" "$STRESS_PID" "home"; sleep 6
+    if ! run_on "$NODE1" "ps aux" | grep -q "[m]igtest"; then
+        fail "test3: lost at cycle $i (return)"
+        dump_proc_mattx "$NODE1"
+        dump_proc_mattx "$NODE2"
+        dump_log "$NODE1" /tmp/pingpong.log
+        dump_dmesg "$NODE1" 50
+        dump_dmesg "$NODE2" 50
+        TEST3_OK=0
         break
     fi
 done
 
-run_on "$NODE1" "ps aux" | grep -q "[m]igtest" && \
-    pass "test3: migtest alive after 5 full cycles" || fail "test3: process died during pingpong"
+if [ "$TEST3_OK" -eq 1 ]; then
+    if run_on "$NODE1" "ps aux" | grep -q "[m]igtest"; then
+        pass "test3: alive after 5 cycles"
+    else
+        fail "test3: process died after cycles"
+        dump_log "$NODE1" /tmp/pingpong.log
+        dump_dmesg "$NODE1" 30
+    fi
+fi
 
 run_on "$NODE1" "kill $STRESS_MGR 2>/dev/null || true"
 check_no_oops "$NODE1" && pass "test3: no oops on $NODE1"

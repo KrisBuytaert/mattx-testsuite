@@ -17,6 +17,8 @@ esac
 
 init_cluster "$DISTRO"
 
+wait_for_ssh "$NODE"
+
 echo "[start] unloading MattX modules on $NODE..."
 run_on "$NODE" "sudo systemctl stop mattx-discd 2>/dev/null || true"
 run_on "$NODE" "sudo umount /mattxfs 2>/dev/null || true"

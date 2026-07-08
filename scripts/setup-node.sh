@@ -28,7 +28,17 @@ case "$DISTRO" in
         run_on "$NODE" "sudo dnf update -y"
         ;;
     deb)
-        run_on "$NODE" "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq"
+        run_on "$NODE" "
+            echo '[setup] waiting for apt lock to be released...'
+            for i in {1..60}; do
+                if sudo apt-get update -qq -o DPkg::Lock::Timeout=1 2>/dev/null; then
+                    echo '[setup] apt lock released!'
+                    break
+                fi
+                echo 'Apt lock is busy, waiting 5 seconds...'
+                sleep 5
+            done
+        "
         run_on "$NODE" "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y"
         ;;
 esac
@@ -42,7 +52,7 @@ case "$DISTRO" in
         # CRB repo is required for libnl3-devel on AlmaLinux 10 / RHEL 10
         run_on "$NODE" "sudo dnf config-manager --set-enabled crb 2>/dev/null || true"
         run_on "$NODE" "sudo dnf install -y gcc make git pkg-config rsync libnl3-devel kernel-devel \
-            policycoreutils-python-utils setools-console"
+            policycoreutils-python-utils setools-console nmap-ncat"
         # Set SELinux permissive — mattx-stub runs as kernel_generic_helper_t which by default
         # cannot create netlink_generic_socket or write to /tmp. A proper policy module needs
         # to be built once we have a full audit log; use 'make selinux-policy-alma' for that.
@@ -59,7 +69,7 @@ case "$DISTRO" in
         ;;
     deb)
         run_on "$NODE" "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            gcc make git pkg-config libnl-3-dev libnl-genl-3-dev rsync"
+            gcc make git pkg-config libnl-3-dev libnl-genl-3-dev rsync netcat-openbsd"
         run_on "$NODE" "
             set -e
             KVER=\$(uname -r)

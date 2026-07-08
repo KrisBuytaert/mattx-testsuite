@@ -9,8 +9,8 @@ DISTRO="${1:?Usage: $0 <alma|deb> <1|2>}"
 NODE_NUM="${2:?Usage: $0 <alma|deb> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEYS_DIR="$SCRIPT_DIR/../keys"
-BASE_CACHE="/var/lib/libvirt/images/mattx-base"   # survives make clean
-IMAGES_DIR="/var/lib/libvirt/images/mattx-test"   # per-VM disks, wiped on clean
+BASE_CACHE="/var/lib/libvirt/images/mattx-base-sdog"   # survives make clean
+IMAGES_DIR="/var/lib/libvirt/images/mattx-test-sdog"   # per-VM disks, wiped on clean
 
 case "$DISTRO" in
     alma)
@@ -56,21 +56,21 @@ if virsh domstate "$VM_NAME" 2>/dev/null | grep -q "shut off"; then
 fi
 
 # ---- directories ----
-sudo mkdir -p "$BASE_CACHE" "$IMAGES_DIR"
+mkdir -p "$BASE_CACHE" "$IMAGES_DIR"
 
 # ---- download base image once, resume-safe ----
 if [ -f "$BASE_IMAGE" ]; then
     echo "[create] base image already cached: $BASE_IMAGE"
 else
     echo "[create] downloading $DISTRO base image (stored in $BASE_CACHE, never deleted by make clean)..."
-    sudo curl -L --progress-bar -C - -o "${BASE_IMAGE}.tmp" "$BASE_URL"
-    sudo mv "${BASE_IMAGE}.tmp" "$BASE_IMAGE"
+    curl -L --progress-bar -C - -o "${BASE_IMAGE}.tmp" "$BASE_URL"
+    mv "${BASE_IMAGE}.tmp" "$BASE_IMAGE"
     echo "[create] cached: $BASE_IMAGE"
 fi
 
 # ---- thin clone ----
 echo "[create] creating disk for $VM_NAME (10 GB sparse)..."
-sudo qemu-img create -f qcow2 -b "$BASE_IMAGE" -F qcow2 "$VM_DISK" 10G
+qemu-img create -f qcow2 -b "$BASE_IMAGE" -F qcow2 "$VM_DISK" 10G
 
 # ---- cloud-init seed ISO ----
 SEED_DIR="$(mktemp -d)"
@@ -106,7 +106,7 @@ elif command -v mkisofs &>/dev/null; then
     mkisofs -quiet -output "$SEED_TMP" -volid cidata \
         -joliet -rock "$SEED_DIR/user-data" "$SEED_DIR/meta-data"
 fi
-sudo mv "$SEED_TMP" "$SEED_ISO"
+mv "$SEED_TMP" "$SEED_ISO"
 
 # ---- launch VM ----
 echo "[create] launching $VM_NAME..."

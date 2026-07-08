@@ -1,3 +1,4 @@
+export LIBVIRT_DEFAULT_URI := qemu:///system
 SCRIPTS  := scripts
 STAMP    := .stamp
 KEYS_DIR := keys
@@ -9,13 +10,20 @@ KEYS_DIR := keys
 .PHONY: all alma debian almacluster debcluster allclusters \
         upgrade-alma upgrade-deb \
         test-alma test-deb \
+        setup-eessi-alma setup-eessi-deb \
+        test-eessi-alma test-eessi-deb \
+        test-eessi-espresso-alma test-eessi-espresso-deb \
+        test-eessi-gromacs-alma test-eessi-gromacs-deb \
         start-alma start-deb start \
         stop-alma stop-deb stop \
         status \
         clean-alma clean-deb clean \
-        keys check
+        keys check setup
 
 all:
+	@echo "First-time setup (run once, requires sudo):"
+	@echo "  make setup         add $(USER) to libvirt group + grant image dir access"
+	@echo ""
 	@echo "Provisioning:"
 	@echo "  make alma          provision single AlmaLinux 10 node (almanode1)"
 	@echo "  make debian        provision single Debian 13 node   (debnode1)"
@@ -37,8 +45,18 @@ all:
 	@echo "  make upgrade-deb   rebuild MattX and reload modules on Debian cluster"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test-alma     run migration tests on AlmaLinux cluster"
-	@echo "  make test-deb      run migration tests on Debian cluster"
+	@echo "  make test-alma               run MattX migration tests on AlmaLinux cluster"
+	@echo "  make test-deb                run MattX migration tests on Debian cluster"
+	@echo ""
+	@echo "EESSI / HPC software stack:"
+	@echo "  make setup-eessi-alma        install CVMFS + EESSI on AlmaLinux cluster"
+	@echo "  make setup-eessi-deb         install CVMFS + EESSI on Debian cluster"
+	@echo "  make test-eessi-alma         run full EESSI test suite on AlmaLinux cluster"
+	@echo "  make test-eessi-deb          run full EESSI test suite on Debian cluster"
+	@echo "  make test-eessi-espresso-alma  run ESPResSo tests on AlmaLinux cluster"
+	@echo "  make test-eessi-espresso-deb   run ESPResSo tests on Debian cluster"
+	@echo "  make test-eessi-gromacs-alma   run GROMACS tests on AlmaLinux cluster"
+	@echo "  make test-eessi-gromacs-deb    run GROMACS tests on Debian cluster"
 	@echo ""
 	@echo "Destruction (deletes disks — requires full reprovision):"
 	@echo "  make clean-alma    destroy AlmaLinux VMs and disks"
@@ -46,6 +64,23 @@ all:
 	@echo "  make clean         destroy everything"
 	@echo ""
 	@echo "Provisioning is idempotent: re-running skips completed steps."
+
+setup:
+	@echo "[setup] configuring host for passwordless libvirt access..."
+	@if ! id -nG | tr ' ' '\n' | grep -qx libvirt; then \
+	    sudo usermod -aG libvirt $(USER); \
+	    echo "[setup] added $(USER) to libvirt group"; \
+	else \
+	    echo "[setup] $(USER) already in libvirt group"; \
+	fi
+	@if ! test -w /var/lib/libvirt/images/; then \
+	    sudo setfacl -m u:$(USER):rwx /var/lib/libvirt/images/ 2>/dev/null || \
+	    sudo chmod g+rwx /var/lib/libvirt/images/; \
+	    echo "[setup] granted write access to /var/lib/libvirt/images/"; \
+	fi
+	@echo "[setup] done"
+	@id -nG | tr ' ' '\n' | grep -qx libvirt || \
+	    echo "[setup] NOTE: run 'newgrp libvirt' or log out/in to activate the libvirt group"
 
 check:
 	@command -v virsh        >/dev/null || { echo "ERROR: virsh not found (install libvirt)"; exit 1; }
@@ -56,6 +91,10 @@ check:
 	@{ command -v cloud-localds || command -v genisoimage || command -v mkisofs; } \
 		>/dev/null 2>&1 || \
 		{ echo "ERROR: need cloud-localds, genisoimage, or mkisofs"; exit 1; }
+	@id -nG | tr ' ' '\n' | grep -qx libvirt || \
+		{ echo "ERROR: $(USER) is not in the libvirt group — run: make setup"; exit 1; }
+	@test -w /var/lib/libvirt/images/ || \
+		{ echo "ERROR: cannot write to /var/lib/libvirt/images/ — run: make setup"; exit 1; }
 
 keys: $(KEYS_DIR)/mattx_test
 
@@ -161,11 +200,47 @@ upgrade-deb:
 
 # ---- Test targets ----
 
-test-alma:
+test-alma: start-alma
 	$(SCRIPTS)/run-tests.sh alma
 
-test-deb:
+test-deb: start-deb
 	$(SCRIPTS)/run-tests.sh deb
+
+# ---- EESSI setup (idempotent via stamps) ----
+
+$(STAMP)/alma-eessi: $(STAMP)/alma-vms
+	$(SCRIPTS)/setup-eessi.sh alma 1
+	$(SCRIPTS)/setup-eessi.sh alma 2
+	@touch $@
+
+$(STAMP)/deb-eessi: $(STAMP)/deb-vms
+	$(SCRIPTS)/setup-eessi.sh deb 1
+	$(SCRIPTS)/setup-eessi.sh deb 2
+	@touch $@
+
+setup-eessi-alma: $(STAMP)/alma-eessi
+
+setup-eessi-deb: $(STAMP)/deb-eessi
+
+# ---- EESSI test targets ----
+
+test-eessi-espresso-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-espresso.sh alma
+
+test-eessi-espresso-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-espresso.sh deb
+
+test-eessi-gromacs-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-gromacs.sh alma
+
+test-eessi-gromacs-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-gromacs.sh deb
+
+test-eessi-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi.sh alma
+
+test-eessi-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi.sh deb
 
 # ---- Stop (graceful shutdown, VMs and disks preserved) ----
 
@@ -186,8 +261,6 @@ stop: stop-alma stop-deb
 start-alma:
 	virsh start almanode1 2>/dev/null || true
 	virsh start almanode2 2>/dev/null || true
-	$(SCRIPTS)/setup-node.sh alma 1
-	$(SCRIPTS)/setup-node.sh alma 2
 	$(SCRIPTS)/start-mattx.sh alma 1
 	$(SCRIPTS)/start-mattx.sh alma 2
 	@echo "[start] AlmaLinux cluster ready"
@@ -195,8 +268,6 @@ start-alma:
 start-deb:
 	virsh start debnode1 2>/dev/null || true
 	virsh start debnode2 2>/dev/null || true
-	$(SCRIPTS)/setup-node.sh deb 1
-	$(SCRIPTS)/setup-node.sh deb 2
 	$(SCRIPTS)/start-mattx.sh deb 1
 	$(SCRIPTS)/start-mattx.sh deb 2
 	@echo "[start] Debian cluster ready"
