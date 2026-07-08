@@ -10,18 +10,44 @@ BRIDGE="$3"
 NETMASK="255.255.255.0"
 shift 3
 
-if virsh net-info "$NAME" 2>/dev/null | grep -q "Active:.*yes"; then
+# Multiple rigs/polecats on this host can invoke this script concurrently for
+# the same shared libvirt network. Without serialization, two invocations can
+# interleave their check-then-act sequences: one process's "start failed —
+# recreating" branch can destroy the bridge right after another VM has already
+# attached its tap to it, silently orphaning that VM's networking (its DHCP
+# broadcasts leave the NIC but the tap is no longer enslaved to the live
+# bridge, so they're never seen by dnsmasq). Serialize the whole
+# check-then-act sequence with a host-wide lock so concurrent callers see a
+# consistent state instead of racing.
+LOCKFILE="/tmp/mattx-net-${NAME}.lock"
+exec 9>"$LOCKFILE"
+flock -w 120 9 || { echo "[network] ERROR: could not acquire lock for $NAME after 120s"; exit 1; }
+
+# Capture net-info into a variable rather than piping it to grep -q: grep -q
+# exits as soon as it finds a match, which can close the pipe while virsh is
+# still writing and kill it with SIGPIPE. Under `set -o pipefail` that
+# SIGPIPE-tainted exit status makes the pipeline report failure even though
+# grep found the match — so an already-active network was misread as
+# inactive on every check after the first, deterministically driving this
+# script into the destructive "start failed — recreating" branch below and
+# tearing down a perfectly healthy network (orphaning any VM already
+# attached to its bridge).
+NET_INFO="$(virsh net-info "$NAME" 2>/dev/null || true)"
+
+if grep -q "Active:.*yes" <<<"$NET_INFO"; then
     echo "[network] $NAME already active"
     exit 0
 fi
 
 # Network is defined but not active (e.g. after a host reboot) — just start it.
 # Destroying and recreating the bridge would disconnect already-running VMs.
-if virsh net-info "$NAME" 2>/dev/null; then
+if [ -n "$NET_INFO" ]; then
+    echo "$NET_INFO"
     echo "[network] $NAME defined but inactive — starting"
     virsh net-start     "$NAME" 2>/dev/null || true
     virsh net-autostart "$NAME" 2>/dev/null || true
-    if virsh net-info "$NAME" 2>/dev/null | grep -q "Active:.*yes"; then
+    NET_INFO="$(virsh net-info "$NAME" 2>/dev/null || true)"
+    if grep -q "Active:.*yes" <<<"$NET_INFO"; then
         echo "[network] $NAME started"
         exit 0
     fi
