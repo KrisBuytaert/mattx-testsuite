@@ -10,7 +10,7 @@ KEYS_DIR := keys
 
 .PHONY: all alma debian ubuntu almacluster debcluster ubucluster allclusters \
         upgrade-alma upgrade-deb upgrade-ubu \
-        test-alma test-deb test-ubu \
+        test-alma test-deb test-ubu ensure-alma-running ensure-deb-running \
         setup-eessi-alma setup-eessi-deb \
         test-eessi-alma test-eessi-deb \
         test-eessi-espresso-alma test-eessi-espresso-deb \
@@ -245,10 +245,27 @@ upgrade-ubu:
 
 # ---- Test targets ----
 
-test-alma: start-alma
+# NOTE: test-* deliberately do NOT depend on start-alma/start-deb. Those force
+# a live rmmod/insmod reload, which is unsafe on a cluster that's already up
+# and connected (crashes mattx.ko — see mt-985.2 / mt-463). ensure-*-running
+# only reloads a node that isn't already healthy; a genuinely fresh/stopped
+# node has no stale peer state, so reloading it is safe.
+ensure-alma-running:
+	virsh start almanode1 2>/dev/null || true
+	virsh start almanode2 2>/dev/null || true
+	$(SCRIPTS)/ensure-mattx-running.sh alma 1
+	$(SCRIPTS)/ensure-mattx-running.sh alma 2
+
+ensure-deb-running:
+	virsh start debnode1 2>/dev/null || true
+	virsh start debnode2 2>/dev/null || true
+	$(SCRIPTS)/ensure-mattx-running.sh deb 1
+	$(SCRIPTS)/ensure-mattx-running.sh deb 2
+
+test-alma: ensure-alma-running
 	$(SCRIPTS)/run-tests.sh alma
 
-test-deb: start-deb
+test-deb: ensure-deb-running
 	$(SCRIPTS)/run-tests.sh deb
 
 test-ubu: start-ubu
