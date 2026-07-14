@@ -135,6 +135,8 @@ else
     run_on "$NODE1" "cd $GROMACS_WORKDIR && rm -f ener.edr logfile_mig.log md.log"
 
     echo "  Starting gmx mdrun on $NODE1 ($(node_ip "$NODE1")) — 20000 steps (round-trip migration target)..."
+    # EESSI/Lmod init prints banner lines to stdout, so `echo $!` is not
+    # necessarily the only line captured — take the last line to isolate it.
     GMX_PID=$(run_on "$NODE1" "
         set -e
         cd $GROMACS_WORKDIR
@@ -144,7 +146,7 @@ else
             -nsteps 20000 -g logfile_mig -ntmpi 1 -ntomp 2 \
             >/tmp/gromacs_migtest.log 2>&1 &
         echo \$!
-    ")
+    " | tail -1)
     sleep 10
 
     if ! run_on "$NODE1" "kill -0 $GMX_PID 2>/dev/null"; then
