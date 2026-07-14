@@ -123,24 +123,25 @@ else
     fail "gromacs-2: GROMACS benchmark failed or timed out on $NODE1"
 fi
 
-# ---- Test 3: gmx mdrun migration via MattX ----
+# ---- Test 3: gmx mdrun round-trip migration via MattX (NODE1 -> NODE2 -> NODE1) ----
 echo ""
-echo "=== Test 3: GROMACS migration via MattX ==="
+echo "=== Test 3: GROMACS round-trip migration via MattX ==="
 
+NODE1_ID=$(run_on "$NODE1" "cat /proc/mattx/nodes 2>/dev/null" | awk '/\(Local\)/{print $1}' || true)
 NODE2_ID=$(run_on "$NODE2" "cat /proc/mattx/nodes 2>/dev/null" | awk '/\(Local\)/{print $1}' || true)
-if [ -z "$NODE2_ID" ]; then
-    fail "gromacs-3: MattX not running on $NODE2 — run 'make ${DISTRO}cluster' first"
+if [ -z "$NODE1_ID" ] || [ -z "$NODE2_ID" ]; then
+    fail "gromacs-3: MattX not running on $NODE1/$NODE2 — run 'make ${DISTRO}cluster' first"
 else
     run_on "$NODE1" "cd $GROMACS_WORKDIR && rm -f ener.edr logfile_mig.log md.log"
 
-    echo "  Starting gmx mdrun on $NODE1 ($(node_ip "$NODE1")) — 5000 steps (migration target)..."
+    echo "  Starting gmx mdrun on $NODE1 ($(node_ip "$NODE1")) — 20000 steps (round-trip migration target)..."
     GMX_PID=$(run_on "$NODE1" "
         set -e
         cd $GROMACS_WORKDIR
         source '${EESSI_INIT}'
         module load ${GROMACS_MODULE}
         nohup gmx mdrun -s ion_channel.tpr -maxh 0.50 -resethway -noconfout \
-            -nsteps 5000 -g logfile_mig -ntmpi 1 -ntomp 2 \
+            -nsteps 20000 -g logfile_mig -ntmpi 1 -ntomp 2 \
             >/tmp/gromacs_migtest.log 2>&1 &
         echo \$!
     ")
@@ -169,11 +170,39 @@ else
             if run_on "$NODE2" "ps aux" | grep -q "[g]mx"; then
                 show_location "gmx mdrun (Surrogate)" "$GMX_PID" "$NODE2"
                 pass "gromacs-3: gmx mdrun still running on $NODE2 after 15s"
+
+                # ---- Return leg: migrate back NODE2 -> NODE1 ----
+                do_migrate "gmx mdrun" "$GMX_PID" "$NODE2" "$NODE1" "$NODE1_ID"
+                sleep 8
+
+                echo ""
+                if run_on "$NODE1" "ps aux" | grep -q "[g]mx"; then
+                    show_location "gmx mdrun (returned)" "$GMX_PID" "$NODE1"
+                    echo "  Log tail (stdout forwarded via MattX wormhole):"
+                    run_on "$NODE1" "tail -5 /tmp/gromacs_migtest.log 2>/dev/null || true" | sed 's/^/    /'
+                    pass "gromacs-4: gmx mdrun migrated back to $NODE1"
+
+                    sleep 15
+                    if run_on "$NODE1" "ps aux" | grep -q "[g]mx"; then
+                        show_location "gmx mdrun (returned)" "$GMX_PID" "$NODE1"
+                        pass "gromacs-4: gmx mdrun still running on $NODE1 after 15s (round trip complete)"
+                    else
+                        echo "  ► gmx mdrun [PID $GMX_PID] completed on $NODE1 after returning"
+                        PERF3=$(run_on "$NODE1" "grep 'Performance:' $GROMACS_WORKDIR/logfile_mig.log 2>/dev/null || echo 'N/A'" || echo "N/A")
+                        echo "  Performance: $PERF3"
+                        pass "gromacs-4: gmx mdrun ran to completion on $NODE1 after round trip"
+                    fi
+                else
+                    fail "gromacs-4: gmx mdrun not found on $NODE1 after return migration"
+                    echo "  dmesg tail on $NODE2:"
+                    run_on "$NODE2" "sudo dmesg | tail -20" | sed 's/^/    /' || true
+                fi
             else
-                echo "  ► gmx mdrun [PID $GMX_PID] completed on $NODE2"
+                echo "  ► gmx mdrun [PID $GMX_PID] completed on $NODE2 before the return leg could start"
                 PERF2=$(run_on "$NODE1" "grep 'Performance:' $GROMACS_WORKDIR/logfile_mig.log 2>/dev/null || echo 'N/A'" || echo "N/A")
                 echo "  Performance: $PERF2"
                 pass "gromacs-3: gmx mdrun ran to completion on $NODE2"
+                fail "gromacs-4: cannot perform return-leg migration — job completed on $NODE2 before it could be migrated back (increase -nsteps if this recurs)"
             fi
         else
             fail "gromacs-3: gmx mdrun not found on $NODE2 after migration"
@@ -182,17 +211,18 @@ else
         fi
 
         run_on "$NODE1" "kill $GMX_PID 2>/dev/null || true; pkill gmx 2>/dev/null || true"
+        run_on "$NODE2" "pkill gmx 2>/dev/null || true"
     fi
 
     if run_on "$NODE1" "sudo dmesg" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
-        fail "gromacs-3: kernel oops on $NODE1"
+        fail "gromacs-4: kernel oops on $NODE1"
     else
-        pass "gromacs-3: no kernel oops on $NODE1"
+        pass "gromacs-4: no kernel oops on $NODE1"
     fi
     if run_on "$NODE2" "sudo dmesg" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
-        fail "gromacs-3: kernel oops on $NODE2"
+        fail "gromacs-4: kernel oops on $NODE2"
     else
-        pass "gromacs-3: no kernel oops on $NODE2"
+        pass "gromacs-4: no kernel oops on $NODE2"
     fi
 fi
 
