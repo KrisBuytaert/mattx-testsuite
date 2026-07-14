@@ -231,8 +231,18 @@ _FAIL_T2=$FAIL
 echo ""
 echo "=== Test 2: Network wormhole (servertestpoll) ==="
 
-SERVER_PID=$(run_on "$NODE1" "servertestpoll &>/tmp/server.log & echo \$!")
+SERVER_MGR=$(run_on "$NODE1" "servertestpoll &>/tmp/server.log & echo \$!")
 sleep 2
+# servertestpoll forks: the Manager (SERVER_MGR, just waitpid()s) and the
+# Worker child, which actually holds the listening socket. Migrate the
+# Worker's PID, not the Manager's -- mirrors what test1/test3 already do via
+# pgrep -P for migtest. Migrating the Manager instead sends a process whose
+# only job is `waitpid(child_pid)` on a PID that doesn't exist as its child
+# once resumed on the target node; waitpid() fails (ECHILD, unchecked) and
+# the Manager exits within milliseconds of resuming -- which the kernel then
+# (correctly) reports as a real process death, not a bug in MattX itself.
+SERVER_PID=$(run_on "$NODE1" "pgrep -P $SERVER_MGR" || true)
+[ -n "$SERVER_PID" ] || { fail "test2: servertestpoll worker did not start"; run_on "$NODE1" "kill $SERVER_MGR 2>/dev/null||true"; }
 
 NODE1_IP="$(node_ip "$NODE1")"
 echo ""
@@ -244,7 +254,16 @@ run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null" && \
     fail "test2: server not reachable before migration"
 
 do_migrate "servertestpoll" "$SERVER_PID" "$NODE1" "$NODE2" "$NODE2_ID"
-sleep 5
+
+# A socket-holding process needs many extra syscall-replay round trips (bind,
+# listen, connect, ...) to reconstruct on the target, unlike a bare migtest —
+# that can take 30s+. Poll instead of a fixed sleep so we don't fail a
+# migration that's simply still in flight.
+echo "  Waiting for migration to complete (up to 60s)..."
+for i in $(seq 1 30); do
+    run_on "$NODE2" "ps aux" | grep -q "[s]ervertestpoll" && break
+    sleep 2
+done
 
 echo ""
 echo "  After migration:"
@@ -270,7 +289,7 @@ else
     echo "  Skipping wormhole nc check — migration did not succeed (result would be a false positive)"
 fi
 
-run_on "$NODE1" "kill $SERVER_PID 2>/dev/null || true"
+run_on "$NODE1" "kill $SERVER_MGR 2>/dev/null || true"
 check_no_oops "$NODE1" && pass "test2: no oops on $NODE1"
 check_no_oops "$NODE2" && pass "test2: no oops on $NODE2"
 [ "$FAIL" -gt "$_FAIL_T2" ] && { repro_setup; repro_test2; }
