@@ -1,12 +1,12 @@
 #!/bin/bash
-# create-vm.sh <alma|deb> <1|2>
+# create-vm.sh <alma|deb|ubu> <1|2>
 # Downloads base cloud image (once), creates a thin qcow2 clone,
 # builds a cloud-init seed ISO, and starts the VM via virt-install.
 set -euo pipefail
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
-DISTRO="${1:?Usage: $0 <alma|deb> <1|2>}"
-NODE_NUM="${2:?Usage: $0 <alma|deb> <1|2>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu> <1|2>}"
+NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEYS_DIR="$SCRIPT_DIR/../keys"
 BASE_CACHE="/var/lib/libvirt/images/mattx-base-sdog"   # survives make clean
@@ -32,6 +32,17 @@ case "$DISTRO" in
         case "$NODE_NUM" in
             1) MAC="52:54:00:0b:00:21" ;;
             2) MAC="52:54:00:0b:00:22" ;;
+            *) echo "ERROR: node num must be 1 or 2" >&2; exit 1 ;;
+        esac
+        ;;
+    ubu)
+        VM_NAME="ubunode${NODE_NUM}"
+        BASE_URL="https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"
+        BASE_IMAGE="$BASE_CACHE/ubuntu-26-base.qcow2"
+        OS_VARIANT="ubuntu25.10"
+        case "$NODE_NUM" in
+            1) MAC="52:54:00:0b:00:31" ;;
+            2) MAC="52:54:00:0b:00:32" ;;
             *) echo "ERROR: node num must be 1 or 2" >&2; exit 1 ;;
         esac
         ;;

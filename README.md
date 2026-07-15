@@ -11,7 +11,7 @@ This is meant to easily spin up a test environment that allows you to test MattX
 
 
 Fully automated 2-node cluster provisioning and migration smoke tests for
-[MattX](../README.md), targeting Debian 13 (trixie) and AlmaLinux 10.
+[MattX](../README.md), targeting Debian 13 (trixie), Ubuntu 26.04 and AlmaLinux 10.
 
 VMs are created from official qcow2 cloud images using libvirt directly —
 no Vagrant, no OS installer. SSH keys and hostname configuration are injected
@@ -53,6 +53,8 @@ sudo usermod -aG libvirt $(whoami)
 | AlmaLinux node 2 | `almanode2` | 192.168.100.12 |
 | Debian node 1 | `debnode1` | 192.168.100.21 |
 | Debian node 2 | `debnode2` | 192.168.100.22 |
+| Ubuntu node 1 | `ubunode1` | 192.168.100.31 |
+| Ubuntu node 2 | `ubunode2` | 192.168.100.32 |
 
 All VMs share the `mattx-test` libvirt NAT network (192.168.100.0/24).
 IPs are fixed via MAC→IP DHCP reservations. Nodes can reach each other
@@ -65,13 +67,17 @@ and have internet access via NAT through the host.
 ```
 make alma          Provision single AlmaLinux 10 node (almanode1)
 make debian        Provision single Debian 13 node   (debnode1)
+make ubuntu        Provision single Ubuntu 26.04 node   (ubunode1)
 make almacluster   2-node AlmaLinux cluster: provision + build + deploy MattX
 make debcluster    2-node Debian cluster:    provision + build + deploy MattX
-make allclusters   Both clusters (use -j2 to run in parallel)
+make ubucluster    2-node Ubuntu cluster:    provision + build + deploy MattX
+make allclusters   All clusters (use -j3 to run in parallel)
 make test-alma     Run migration smoke tests on AlmaLinux cluster
 make test-deb      Run migration smoke tests on Debian cluster
+make test-ubu      Run migration smoke tests on Ubuntu cluster
 make clean-alma    Destroy AlmaLinux VMs
 make clean-deb     Destroy Debian VMs
+make clean-ubu     Destroy Ubuntu VMs
 make clean         Destroy all VMs and stamps
 ```
 
@@ -114,12 +120,13 @@ Creates the `mattx-test` NAT network with DHCP reservations mapping each
 VM's MAC address to its fixed IP. Called automatically before any VM is
 created; idempotent if the network is already active.
 
-### 3. VM Creation (`scripts/create-vm.sh <alma|deb> <1|2>`)
+### 3. VM Creation (`scripts/create-vm.sh <alma|deb|ubu> <1|2>`)
 
 1. Downloads the official cloud image to `/var/lib/libvirt/images/mattx-test/`
    (once; subsequent runs reuse it):
    - AlmaLinux 10: `AlmaLinux-10-GenericCloud-latest.x86_64.qcow2`
    - Debian 13: `debian-13-genericcloud-amd64.qcow2`
+   - Ubuntu 26.04: `resolute-server-cloudimg-amd64.img`
 2. Creates a **thin qcow2 clone** (10 GB sparse, backed by the base image).
 3. Writes a **cloud-init seed ISO** (NoCloud datasource) containing:
    - `user-data`: creates the `mattx` user with passwordless sudo and the
@@ -127,7 +134,7 @@ created; idempotent if the network is already active.
    - `meta-data`: sets the hostname
 4. Calls `virt-install --import` to define and start the VM.
 
-### 4. Node Setup (`scripts/setup-node.sh <alma|deb> <1|2>`)
+### 4. Node Setup (`scripts/setup-node.sh <alma|deb|ubu> <1|2>`)
 
 Polls until SSH is available, then:
 - Installs build dependencies (`gcc`, `make`, `git`, kernel headers, `libnl`, etc.)
@@ -141,7 +148,7 @@ Polls until SSH is available, then:
 - `scripts/deploy-mattx.sh` — relays the built tree from `node1` to `node2`
   via the host (rsync down, rsync up), then runs `sudo make install` on `node2`.
 
-### 6. Start MattX (`scripts/start-mattx.sh <alma|deb> <1|2>`)
+### 6. Start MattX (`scripts/start-mattx.sh <alma|deb|ubu> <1|2>`)
 
 On each node: `rmmod`/`insmod` both modules, `systemctl restart mattx-discd`,
 disables the load balancer, and mounts MattXFS at `/mattxfs`.
@@ -154,7 +161,7 @@ All tests run from the host over SSH. Each checks for kernel oops in `dmesg`
 after completion.
 
 ```
-make test-deb    # or make test-alma
+make test-deb    # or make test-alma or make test-ubu
 ```
 
 ### Test 1 — Basic migration (migtest)

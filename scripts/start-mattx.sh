@@ -1,9 +1,9 @@
 #!/bin/bash
-# start-mattx.sh <alma|deb> <1|2>
+# start-mattx.sh <alma|deb|ubu> <1|2>
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb> <1|2>}"
-NODE_NUM="${2:?Usage: $0 <alma|deb> <1|2>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu> <1|2>}"
+NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
@@ -12,7 +12,9 @@ case "$DISTRO-$NODE_NUM" in
     alma-2) NODE="almanode2" ;;
     deb-1)  NODE="debnode1"  ;;
     deb-2)  NODE="debnode2"  ;;
-    *) echo "Usage: $0 <alma|deb> <1|2>" >&2; exit 1 ;;
+    ubu-1)  NODE="ubunode1"  ;;
+    ubu-2)  NODE="ubunode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu> <1|2>" >&2; exit 1 ;;
 esac
 
 init_cluster "$DISTRO"

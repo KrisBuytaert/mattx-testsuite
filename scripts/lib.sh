@@ -16,6 +16,8 @@ node_ip() {
         almanode2) echo "192.168.100.12" ;;
         debnode1)  echo "192.168.100.21" ;;
         debnode2)  echo "192.168.100.22" ;;
+        ubunode1)  echo "192.168.100.31" ;;
+        ubunode2)  echo "192.168.100.32" ;;
         *) echo "ERROR: unknown node '$1'" >&2; exit 1 ;;
     esac
 }
@@ -75,7 +77,7 @@ wait_for_ssh_down() {
 init_cluster() {
     local distro="$1"
     case "$distro" in
-        alma|deb) ;;
+        alma|deb|ubu) ;;
         *) echo "ERROR: unknown distro '$distro'" >&2; exit 1 ;;
     esac
     [ -f "$SSH_KEY" ] || {

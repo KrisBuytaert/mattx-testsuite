@@ -6,18 +6,19 @@ KEYS_DIR := keys
 # Fixed IPs for reference
 # almanode1: 192.168.100.11   almanode2: 192.168.100.12
 # debnode1:  192.168.100.21   debnode2:  192.168.100.22
+# ubunode1:  192.168.100.31   ubunode2:  192.168.100.32
 
-.PHONY: all alma debian almacluster debcluster allclusters \
-        upgrade-alma upgrade-deb \
-        test-alma test-deb \
+.PHONY: all alma debian ubuntu almacluster debcluster ubucluster allclusters \
+        upgrade-alma upgrade-deb upgrade-ubu \
+        test-alma test-deb test-ubu \
         setup-eessi-alma setup-eessi-deb \
         test-eessi-alma test-eessi-deb \
         test-eessi-espresso-alma test-eessi-espresso-deb \
         test-eessi-gromacs-alma test-eessi-gromacs-deb \
-        start-alma start-deb start \
-        stop-alma stop-deb stop \
+        start-alma start-deb start-ubu start \
+        stop-alma stop-deb stop-ubu stop \
         status \
-        clean-alma clean-deb clean \
+        clean-alma clean-deb clean-ubu clean \
         keys check setup
 
 all:
@@ -27,26 +28,32 @@ all:
 	@echo "Provisioning:"
 	@echo "  make alma          provision single AlmaLinux 10 node (almanode1)"
 	@echo "  make debian        provision single Debian 13 node   (debnode1)"
+	@echo "  make ubuntu        provision single Ubuntu 26.04 node (ubunode1)"
 	@echo "  make almacluster   2-node AlmaLinux cluster: provision + build + start MattX"
 	@echo "  make debcluster    2-node Debian cluster:    provision + build + start MattX"
+	@echo "  make ubucluster    2-node Ubuntu cluster:    provision + build + start MattX"
 	@echo "  make allclusters   both clusters"
 	@echo ""
 	@echo "Daily use (VMs stay on disk, no reprovisioning):"
 	@echo "  make stop          graceful shutdown of all VMs"
 	@echo "  make stop-alma     graceful shutdown of AlmaLinux VMs"
 	@echo "  make stop-deb      graceful shutdown of Debian VMs"
+	@echo "  make stop-ubu      graceful shutdown of Ubuntu VMs"
 	@echo "  make start         start all VMs + restart MattX"
 	@echo "  make start-alma    start AlmaLinux VMs + restart MattX"
 	@echo "  make start-deb     start Debian VMs + restart MattX"
+	@echo "  make start-ubu     start Ubuntu VMs + restart MattX"
 	@echo "  make status        show VM power states"
 	@echo ""
 	@echo "Upgrade (rebuild + reload on running cluster):"
 	@echo "  make upgrade-alma  rebuild MattX and reload modules on AlmaLinux cluster"
 	@echo "  make upgrade-deb   rebuild MattX and reload modules on Debian cluster"
+	@echo "  make upgrade-ubu   rebuild MattX and reload modules on Ubuntu cluster"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test-alma               run MattX migration tests on AlmaLinux cluster"
 	@echo "  make test-deb                run MattX migration tests on Debian cluster"
+	@echo "  make test-ubu                run MattX migration tests on Ubuntu cluster"
 	@echo ""
 	@echo "EESSI / HPC software stack:"
 	@echo "  make setup-eessi-alma        install CVMFS + EESSI on AlmaLinux cluster"
@@ -61,7 +68,7 @@ all:
 	@echo "Destruction (deletes disks — requires full reprovision):"
 	@echo "  make clean-alma    destroy AlmaLinux VMs and disks"
 	@echo "  make clean-deb     destroy Debian VMs and disks"
-	@echo "  make clean         destroy everything"
+	@echo "  make clean-ubu     destroy Ubuntu VMs and disks"
 	@echo ""
 	@echo "Provisioning is idempotent: re-running skips completed steps."
 
@@ -113,7 +120,9 @@ $(STAMP)/network: | check $(STAMP)
 		52:54:00:0a:00:11=192.168.100.11 \
 		52:54:00:0a:00:12=192.168.100.12 \
 		52:54:00:0b:00:21=192.168.100.21 \
-		52:54:00:0b:00:22=192.168.100.22
+		52:54:00:0b:00:22=192.168.100.22 \
+		52:54:00:0b:00:31=192.168.100.31 \
+		52:54:00:0b:00:32=192.168.100.32
 	@touch $@
 
 # ---- VM provisioning ----
@@ -132,6 +141,13 @@ $(STAMP)/deb-vms: $(STAMP)/network | keys
 	$(SCRIPTS)/setup-node.sh deb 2
 	@touch $@
 
+$(STAMP)/ubu-vms: $(STAMP)/network | keys
+	$(SCRIPTS)/create-vm.sh ubu 1
+	$(SCRIPTS)/create-vm.sh ubu 2
+	$(SCRIPTS)/setup-node.sh ubu 1
+	$(SCRIPTS)/setup-node.sh ubu 2
+	@touch $@
+
 # ---- Build & deploy MattX ----
 
 $(STAMP)/alma-built: $(STAMP)/alma-vms
@@ -142,12 +158,20 @@ $(STAMP)/deb-built: $(STAMP)/deb-vms
 	$(SCRIPTS)/build-mattx.sh deb
 	@touch $@
 
+$(STAMP)/ubu-built: $(STAMP)/ubu-vms
+	$(SCRIPTS)/build-mattx.sh ubu
+	@touch $@
+
 $(STAMP)/alma-deployed: $(STAMP)/alma-built
 	$(SCRIPTS)/deploy-mattx.sh alma
 	@touch $@
 
 $(STAMP)/deb-deployed: $(STAMP)/deb-built
 	$(SCRIPTS)/deploy-mattx.sh deb
+	@touch $@
+
+$(STAMP)/ubu-deployed: $(STAMP)/ubu-built
+	$(SCRIPTS)/deploy-mattx.sh ubu
 	@touch $@
 
 # ---- High-level targets ----
@@ -163,6 +187,12 @@ debian: $(STAMP)/network keys
 	$(SCRIPTS)/setup-node.sh deb 1
 	@echo ""
 	@echo "Debian node ready — ssh mattx@192.168.100.21 -i $(KEYS_DIR)/mattx_test"
+
+ubuntu: $(STAMP)/network keys
+	$(SCRIPTS)/create-vm.sh ubu 1
+	$(SCRIPTS)/setup-node.sh ubu 1
+	@echo ""
+	@echo "Ubuntu node ready — ssh mattx@192.168.100.31 -i $(KEYS_DIR)/mattx_test"
 
 almacluster: $(STAMP)/alma-deployed
 	$(SCRIPTS)/start-mattx.sh alma 1
@@ -182,7 +212,16 @@ debcluster: $(STAMP)/deb-deployed
 	@echo "  debnode2: 192.168.100.22"
 	@echo "  ssh mattx@192.168.100.21 -i $(KEYS_DIR)/mattx_test"
 
-allclusters: almacluster debcluster
+ubucluster: $(STAMP)/ubu-deployed
+	$(SCRIPTS)/start-mattx.sh ubu 1
+	$(SCRIPTS)/start-mattx.sh ubu 2
+	@echo ""
+	@echo "Ubuntu cluster ready:"
+	@echo "  ubunode1: 192.168.100.31"
+	@echo "  ubunode2: 192.168.100.32"
+	@echo "  ssh mattx@192.168.100.31 -i $(KEYS_DIR)/mattx_test"
+
+allclusters: almacluster debcluster ubucluster
 
 # ---- Upgrade (rebuild + reload on running cluster, no reprovisioning) ----
 
@@ -198,6 +237,12 @@ upgrade-deb:
 	$(SCRIPTS)/start-mattx.sh deb 1
 	$(SCRIPTS)/start-mattx.sh deb 2
 
+upgrade-ubu:
+	$(SCRIPTS)/build-mattx.sh ubu
+	$(SCRIPTS)/deploy-mattx.sh ubu
+	$(SCRIPTS)/start-mattx.sh ubu 1
+	$(SCRIPTS)/start-mattx.sh ubu 2
+
 # ---- Test targets ----
 
 test-alma: start-alma
@@ -205,6 +250,9 @@ test-alma: start-alma
 
 test-deb: start-deb
 	$(SCRIPTS)/run-tests.sh deb
+
+test-ubu: start-ubu
+	$(SCRIPTS)/run-tests.sh ubu
 
 # ---- EESSI setup (idempotent via stamps) ----
 
@@ -252,9 +300,13 @@ stop-alma:
 stop-deb:
 	virsh shutdown debnode1 2>/dev/null || true
 	virsh shutdown debnode2 2>/dev/null || true
+
+stop-ubu:
+	virsh shutdown ubunode1 2>/dev/null || true
+	virsh shutdown ubunode2 2>/dev/null || true
 	@echo "[stop] Debian VMs shutting down"
 
-stop: stop-alma stop-deb
+stop: stop-alma stop-deb stop-ubu
 
 # ---- Start (boot existing VMs, then restart MattX) ----
 
@@ -272,13 +324,22 @@ start-deb:
 	$(SCRIPTS)/start-mattx.sh deb 2
 	@echo "[start] Debian cluster ready"
 
-start: start-alma start-deb
+start-ubu:
+	virsh start ubunode1 2>/dev/null || true
+	virsh start ubunode2 2>/dev/null || true
+	$(SCRIPTS)/setup-node.sh ubu 1
+	$(SCRIPTS)/setup-node.sh ubu 2
+	$(SCRIPTS)/start-mattx.sh ubu 1
+	$(SCRIPTS)/start-mattx.sh ubu 2
+	@echo "[start] Ubuntu cluster ready"
+
+start: start-alma start-deb start-ubu
 
 # ---- Status ----
 
 status:
 	@echo "=== VM power states ==="
-	@for vm in almanode1 almanode2 debnode1 debnode2; do \
+	@for vm in almanode1 almanode2 debnode1 debnode2 ubunode1 ubunode2; do \
 	    state=$$(virsh domstate $$vm 2>/dev/null || echo "not defined"); \
 	    printf "  %-12s %s\n" "$$vm" "$$state"; \
 	done
@@ -298,6 +359,12 @@ clean-deb:
 	$(SCRIPTS)/destroy-vm.sh debnode2
 	@rm -f $(STAMP)/deb-*
 
-clean: clean-alma clean-deb
+clean-ubu:
+	$(SCRIPTS)/destroy-vm.sh ubunode1
+	$(SCRIPTS)/destroy-vm.sh ubunode2
+	@rm -f $(STAMP)/ubu-*
+
+clean: clean-alma clean-deb clean-ubu
 	@rm -rf $(STAMP)
 	@echo "[clean] done"
+

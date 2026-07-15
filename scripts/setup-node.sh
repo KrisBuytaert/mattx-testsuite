@@ -3,8 +3,8 @@
 # Waits for SSH, installs build/runtime deps, configures /etc/hosts.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb> <1|2>}"
-NODE_NUM="${2:?Usage: $0 <alma|deb> <1|2>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu> <1|2>}"
+NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
@@ -13,7 +13,9 @@ case "$DISTRO-$NODE_NUM" in
     alma-2) NODE="almanode2"; PEER="almanode1"; PEER_IP="192.168.100.11" ;;
     deb-1)  NODE="debnode1";  PEER="debnode2";  PEER_IP="192.168.100.22" ;;
     deb-2)  NODE="debnode2";  PEER="debnode1";  PEER_IP="192.168.100.21" ;;
-    *) echo "Usage: $0 <alma|deb> <1|2>" >&2; exit 1 ;;
+    ubu-1)  NODE="ubunode1";  PEER="ubunode2";  PEER_IP="192.168.100.31" ;;
+    ubu-2)  NODE="ubunode2";  PEER="ubunode1";  PEER_IP="192.168.100.32" ;;
+    *) echo "Usage: $0 <alma|deb|ubu> <1|2>" >&2; exit 1 ;;
 esac
 
 init_cluster "$DISTRO"
@@ -27,7 +29,7 @@ case "$DISTRO" in
     alma)
         run_on "$NODE" "sudo dnf update -y"
         ;;
-    deb)
+    deb|ubu)
         # -o DPkg::Lock::Timeout makes apt itself wait for the dpkg frontend
         # lock instead of failing fast — cloud-init/unattended-upgrades often
         # hold it for a while right after boot. Waiting on `apt-get update`
@@ -61,7 +63,7 @@ case "$DISTRO" in
             echo '[setup] kernel headers OK: '\"\${KVER}\"
         "
         ;;
-    deb)
+    deb|ubu)
         run_on "$NODE" "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=180 \
             gcc make git pkg-config libnl-3-dev libnl-genl-3-dev rsync netcat-openbsd"
         run_on "$NODE" "
