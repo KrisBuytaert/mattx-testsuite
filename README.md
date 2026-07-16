@@ -230,11 +230,11 @@ and prints a combined pass/fail summary. Each can also be run independently:
 2. Run `plate_capacitor.py` as a functional MPI (2-rank) run.
 3. Migrate a single-process ESPResSo job via MattX.
 
-> **Known gap (mt-7bw):** Test 2 of the ESPResSo suite currently fails with
-> `rsync failed` — the `eessi-demo/ESPResSo/` directory it expects doesn't
-> exist in this repo checkout and no setup step creates it. This reproduces
-> the same way on both AlmaLinux and Debian, so it's a test-suite packaging
-> gap rather than a distro- or MattX-specific issue. GROMACS is unaffected.
+> **Known gap:** Test 2 of the ESPResSo suite currently fails with `rsync
+> failed` — the `eessi-demo/ESPResSo/` directory it expects doesn't exist in
+> this repo checkout and no setup step creates it. This reproduces the same
+> way on both AlmaLinux and Debian, so it's a test-suite packaging gap
+> rather than a distro- or MattX-specific issue. GROMACS is unaffected.
 
 ---
 
