@@ -221,7 +221,7 @@ show_location "migtest" "$PID" "$NODE1"
 run_on "$NODE1" "ps aux" | grep -q "[m]igtest" && \
     pass "test1: migtest returned to $NODE1" || fail "test1: migtest not back on $NODE1"
 
-run_on "$NODE1" "kill $MGR 2>/dev/null || true"
+run_on "$NODE1" "kill $MGR $PID 2>/dev/null || true"
 check_no_oops "$NODE1" && pass "test1: no oops on $NODE1"
 check_no_oops "$NODE2" && pass "test1: no oops on $NODE2"
 [ "$FAIL" -gt "$_FAIL_T1" ] && { repro_setup; repro_test1; }
@@ -289,7 +289,7 @@ else
     echo "  Skipping wormhole nc check — migration did not succeed (result would be a false positive)"
 fi
 
-run_on "$NODE1" "kill $SERVER_MGR 2>/dev/null || true"
+run_on "$NODE1" "kill $SERVER_MGR $SERVER_PID 2>/dev/null || true"
 check_no_oops "$NODE1" && pass "test2: no oops on $NODE1"
 check_no_oops "$NODE2" && pass "test2: no oops on $NODE2"
 [ "$FAIL" -gt "$_FAIL_T2" ] && { repro_setup; repro_test2; }
@@ -333,7 +333,7 @@ done
 run_on "$NODE1" "ps aux" | grep -q "[m]igtest" && \
     pass "test3: migtest alive after 5 full cycles" || fail "test3: process died during pingpong"
 
-run_on "$NODE1" "kill $STRESS_MGR 2>/dev/null || true"
+run_on "$NODE1" "kill $STRESS_MGR $STRESS_PID 2>/dev/null || true"
 check_no_oops "$NODE1" && pass "test3: no oops on $NODE1"
 check_no_oops "$NODE2" && pass "test3: no oops on $NODE2"
 [ "$FAIL" -gt "$_FAIL_T3" ] && { repro_setup; repro_test3; }
