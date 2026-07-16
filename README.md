@@ -75,6 +75,14 @@ make allclusters   All clusters (use -j3 to run in parallel)
 make test-alma     Run migration smoke tests on AlmaLinux cluster
 make test-deb      Run migration smoke tests on Debian cluster
 make test-ubu      Run migration smoke tests on Ubuntu cluster
+make setup-eessi-alma          Install CVMFS + EESSI on AlmaLinux cluster
+make setup-eessi-deb           Install CVMFS + EESSI on Debian cluster
+make test-eessi-alma           Run full EESSI test suite (ESPResSo + GROMACS) on AlmaLinux
+make test-eessi-deb            Run full EESSI test suite (ESPResSo + GROMACS) on Debian
+make test-eessi-gromacs-alma   Run only the GROMACS EESSI tests on AlmaLinux
+make test-eessi-gromacs-deb    Run only the GROMACS EESSI tests on Debian
+make test-eessi-espresso-alma  Run only the ESPResSo EESSI tests on AlmaLinux
+make test-eessi-espresso-deb   Run only the ESPResSo EESSI tests on Debian
 make clean-alma    Destroy AlmaLinux VMs
 make clean-deb     Destroy Debian VMs
 make clean-ubu     Destroy Ubuntu VMs
@@ -176,6 +184,57 @@ verifies the wormhole keeps serving connections on the original node1 IP.
 ### Test 3 — Pingpong stress
 Runs 5 forward+return migration cycles on a single process and verifies it
 survives all of them.
+
+---
+
+## EESSI Testing
+
+In addition to the basic migration smoke tests above, the suite can install
+[EESSI](https://www.eessi.io/) (the European Environment for Scientific
+Software Installations, distributed via CVMFS) on a cluster and run real
+scientific-computing workloads — GROMACS and ESPResSo — under MattX
+migration, on both AlmaLinux and Debian.
+
+### Setup (`scripts/setup-eessi.sh <alma|deb> <1|2>`)
+
+Run once per node after the cluster is up (`make setup-eessi-alma` /
+`make setup-eessi-deb` runs it on both nodes automatically):
+
+1. Installs the CVMFS client (`dnf`/`cvmrepo` RPM on AlmaLinux, `apt`/`.deb`
+   on Debian) plus the `cvmfs-config-eessi` package pointing at
+   `software.eessi.io`.
+2. Writes `/etc/cvmfs/default.local` and runs `cvmfs_config setup`.
+3. Explicitly probes `software.eessi.io` (autofs alone only creates the
+   mountpoint — an explicit `cvmfs_config probe` is what actually triggers
+   the FUSE mount and fetches data) and verifies at least one EESSI version
+   directory is visible under `/cvmfs/software.eessi.io/versions/`.
+4. If the mount comes up empty, automatically retries with a full
+   unmount/remount cycle before failing with CVMFS/autofs/stratum-1
+   diagnostics.
+
+### Running the tests (`scripts/test-eessi.sh <alma|deb>`)
+
+`make test-eessi-alma` / `make test-eessi-deb` runs both suites back to back
+and prints a combined pass/fail summary. Each can also be run independently:
+
+#### GROMACS (`scripts/test-eessi-gromacs.sh`, `make test-eessi-gromacs-{alma,deb}`)
+1. Verify EESSI is mounted and the GROMACS module loads (prefers EESSI
+   `2025.06`, falls back to `2023.06` if unavailable).
+2. Run the `ion_channel` PRACE benchmark (1000 steps) as a baseline.
+3. Start a longer `gmx mdrun`, migrate it node1→node2 via MattX mid-run,
+   confirm it's still running, then migrate it back node2→node1 and confirm
+   the round trip completes with no kernel oops on either node.
+
+#### ESPResSo (`scripts/test-eessi-espresso.sh`, `make test-eessi-espresso-{alma,deb}`)
+1. Verify EESSI is mounted and the ESPResSo module loads.
+2. Run `plate_capacitor.py` as a functional MPI (2-rank) run.
+3. Migrate a single-process ESPResSo job via MattX.
+
+> **Known gap (mt-7bw):** Test 2 of the ESPResSo suite currently fails with
+> `rsync failed` — the `eessi-demo/ESPResSo/` directory it expects doesn't
+> exist in this repo checkout and no setup step creates it. This reproduces
+> the same way on both AlmaLinux and Debian, so it's a test-suite packaging
+> gap rather than a distro- or MattX-specific issue. GROMACS is unaffected.
 
 ---
 
