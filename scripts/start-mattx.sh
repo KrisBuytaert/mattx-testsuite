@@ -22,7 +22,7 @@ init_cluster "$DISTRO"
 wait_for_ssh "$NODE"
 
 echo "[start] unloading MattX modules on $NODE..."
-run_on "$NODE" "sudo systemctl stop mattx 2>/dev/null || true"
+run_on "$NODE" "sudo systemctl stop mattx-discd 2>/dev/null || true"
 run_on "$NODE" "sudo umount /mattxfs 2>/dev/null || true"
 run_on "$NODE" "sudo rmmod mattxfs 2>/dev/null || true"
 run_on "$NODE" "sudo rmmod mattx    2>/dev/null || true"
@@ -33,7 +33,7 @@ run_on "$NODE" "sudo insmod ~/mattx/mattxfs/mattxfs.ko"
 
 echo "[start] starting mattx-discd on $NODE..."
 run_on "$NODE" "sudo systemctl daemon-reload"
-run_on "$NODE" "sudo systemctl restart mattx"
+run_on "$NODE" "sudo systemctl restart mattx-discd"
 
 echo "[start] disabling balancer on $NODE..."
 run_on "$NODE" "echo 'balancer 0' | sudo tee /proc/mattx/admin > /dev/null"
