@@ -11,10 +11,10 @@ KEYS_DIR := keys
 .PHONY: all alma debian ubuntu almacluster debcluster ubucluster allclusters \
         upgrade-alma upgrade-deb upgrade-ubu \
         test-alma test-deb test-ubu ensure-alma-running ensure-deb-running \
-        setup-eessi-alma setup-eessi-deb \
-        test-eessi-alma test-eessi-deb \
-        test-eessi-espresso-alma test-eessi-espresso-deb \
-        test-eessi-gromacs-alma test-eessi-gromacs-deb \
+        setup-eessi-alma setup-eessi-deb setup-eessi-ubu \
+        test-eessi-alma test-eessi-deb test-eessi-ubu \
+        test-eessi-espresso-alma test-eessi-espresso-deb test-eessi-espresso-ubu \
+        test-eessi-gromacs-alma test-eessi-gromacs-deb test-eessi-gromacs-ubu \
         start-alma start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
         status \
@@ -58,12 +58,16 @@ all:
 	@echo "EESSI / HPC software stack:"
 	@echo "  make setup-eessi-alma        install CVMFS + EESSI on AlmaLinux cluster"
 	@echo "  make setup-eessi-deb         install CVMFS + EESSI on Debian cluster"
+	@echo "  make setup-eessi-ubu         install CVMFS + EESSI on Ubuntu cluster"
 	@echo "  make test-eessi-alma         run full EESSI test suite on AlmaLinux cluster"
 	@echo "  make test-eessi-deb          run full EESSI test suite on Debian cluster"
+	@echo "  make test-eessi-ubu          run full EESSI test suite on Ubuntu cluster"
 	@echo "  make test-eessi-espresso-alma  run ESPResSo tests on AlmaLinux cluster"
 	@echo "  make test-eessi-espresso-deb   run ESPResSo tests on Debian cluster"
+	@echo "  make test-eessi-espresso-ubu   run ESPResSo tests on Ubuntu cluster"
 	@echo "  make test-eessi-gromacs-alma   run GROMACS tests on AlmaLinux cluster"
 	@echo "  make test-eessi-gromacs-deb    run GROMACS tests on Debian cluster"
+	@echo "  make test-eessi-gromacs-ubu    run GROMACS tests on Ubuntu cluster"
 	@echo ""
 	@echo "Destruction (deletes disks — requires full reprovision):"
 	@echo "  make clean-alma    destroy AlmaLinux VMs and disks"
@@ -283,9 +287,16 @@ $(STAMP)/deb-eessi: $(STAMP)/deb-vms
 	$(SCRIPTS)/setup-eessi.sh deb 2
 	@touch $@
 
+$(STAMP)/ubu-eessi: $(STAMP)/ubu-vms
+	$(SCRIPTS)/setup-eessi.sh ubu 1
+	$(SCRIPTS)/setup-eessi.sh ubu 2
+	@touch $@
+
 setup-eessi-alma: $(STAMP)/alma-eessi
 
 setup-eessi-deb: $(STAMP)/deb-eessi
+
+setup-eessi-ubu: $(STAMP)/ubu-eessi
 
 # ---- EESSI test targets ----
 
@@ -295,17 +306,26 @@ test-eessi-espresso-alma: $(STAMP)/alma-eessi
 test-eessi-espresso-deb: $(STAMP)/deb-eessi
 	$(SCRIPTS)/test-eessi-espresso.sh deb
 
+test-eessi-espresso-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-espresso.sh ubu
+
 test-eessi-gromacs-alma: $(STAMP)/alma-eessi
 	$(SCRIPTS)/test-eessi-gromacs.sh alma
 
 test-eessi-gromacs-deb: $(STAMP)/deb-eessi
 	$(SCRIPTS)/test-eessi-gromacs.sh deb
 
+test-eessi-gromacs-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-gromacs.sh ubu
+
 test-eessi-alma: $(STAMP)/alma-eessi
 	$(SCRIPTS)/test-eessi.sh alma
 
 test-eessi-deb: $(STAMP)/deb-eessi
 	$(SCRIPTS)/test-eessi.sh deb
+
+test-eessi-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi.sh ubu
 
 # ---- Stop (graceful shutdown, VMs and disks preserved) ----
 

@@ -1,11 +1,14 @@
 #!/bin/bash
-# test-eessi.sh <alma|deb>
+# test-eessi.sh <alma|deb|ubu>
 # Run the full EESSI test suite: ESPResSo + GROMACS.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
+
+auto_report_wrap "eessi-full" "$@"
 
 init_cluster "$DISTRO"
 

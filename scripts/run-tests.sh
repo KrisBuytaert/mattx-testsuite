@@ -4,6 +4,7 @@ set -euo pipefail
 
 DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
 
 case "$DISTRO" in
@@ -11,6 +12,8 @@ case "$DISTRO" in
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
 esac
+
+auto_report_wrap "run-tests" "$@"
 
 init_cluster "$DISTRO"
 
@@ -110,14 +113,27 @@ PASS=0; FAIL=0
 pass() { echo "[PASS] $1"; PASS=$((PASS+1)); }
 fail() { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }
 
-# Print where a named process is currently running, with ps evidence.
+# Print ps evidence for a process pattern on one node. We search by pattern
+# rather than by the home-node PID: mattx-stub is a distinct process spawned
+# locally on the remote node via call_usermodehelper, so it gets its own
+# kernel-assigned PID there — the original home PID has no reason to exist
+# as a process on the remote node at all, so `ps -p <home-pid>` on the
+# Surrogate's node reliably (and misleadingly) finds nothing.
+# The exact remote command is echoed first so the evidence is self-proving:
+# a reviewer can see which host it ran on and what was asked, not just the
+# result.
 show_location() {
-    local name="$1" pid="$2" node="$3"
+    local pattern="$1" node="$2"
     local ip; ip="$(node_ip "$node")"
-    echo "  ► $name [PID $pid] is running on $node ($ip):"
-    run_on "$node" "ps -p $pid -o pid,user,stat,cmd --no-headers 2>/dev/null \
-                    || ps aux | awk -v p=$pid '\$2==p{print \"   \"\$0}' \
-                    || echo '   (not found in ps — may have already exited)'"
+    local cmd="ps -eo pid,ppid,user,stat,%cpu,etime,cmd --no-headers | grep -iE -- '$pattern' | grep -v grep"
+    echo "  mattx@${node} (${ip})\$ $cmd"
+    local out
+    out="$(run_on "$node" "$cmd" 2>/dev/null || true)"
+    if [ -n "$out" ]; then
+        echo "$out" | sed 's/^/      /'
+    else
+        echo "      (no process matching '$pattern' on $node)"
+    fi
 }
 
 # Print the /proc/mattx/remote entry for a PID (home-node side after forward migration).
@@ -194,7 +210,7 @@ PID=$(run_on "$NODE1" "pgrep -P $MGR" || true)
 [ -n "$PID" ] || { fail "test1: migtest worker did not start"; run_on "$NODE1" "kill $MGR 2>/dev/null||true"; }
 
 echo ""
-show_location "migtest" "$PID" "$NODE1"
+show_location "migtest" "$NODE1"
 
 do_migrate "migtest" "$PID" "$NODE1" "$NODE2" "$NODE2_ID"
 sleep 3
@@ -202,7 +218,7 @@ sleep 3
 echo ""
 echo "  After forward migration:"
 show_deputy "$PID" "$NODE1"
-show_location "migtest (Surrogate)" "$PID" "$NODE2"
+show_location "migtest" "$NODE2"
 
 run_on "$NODE1" "cat /proc/mattx/remote" | grep -q "^${PID}:" && \
     pass "test1: Deputy present on $NODE1 (/proc/mattx/remote)" || fail "test1: Deputy missing on $NODE1"
@@ -216,7 +232,7 @@ sleep 3
 
 echo ""
 echo "  After return migration:"
-show_location "migtest" "$PID" "$NODE1"
+show_location "migtest" "$NODE1"
 
 run_on "$NODE1" "ps aux" | grep -q "[m]igtest" && \
     pass "test1: migtest returned to $NODE1" || fail "test1: migtest not back on $NODE1"
@@ -246,7 +262,7 @@ SERVER_PID=$(run_on "$NODE1" "pgrep -P $SERVER_MGR" || true)
 
 NODE1_IP="$(node_ip "$NODE1")"
 echo ""
-show_location "servertestpoll" "$SERVER_PID" "$NODE1"
+show_location "servertestpoll" "$NODE1"
 
 echo "  Checking TCP reachability on $NODE1_IP:8080 before migration..."
 run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null" && \
@@ -268,7 +284,7 @@ done
 echo ""
 echo "  After migration:"
 show_deputy "$SERVER_PID" "$NODE1"
-show_location "servertestpoll (Surrogate)" "$SERVER_PID" "$NODE2"
+show_location "servertestpoll" "$NODE2"
 
 MIGRATED=0
 if run_on "$NODE2" "ps aux" | grep -q "[s]ervertestpoll"; then
@@ -304,7 +320,7 @@ sleep 2
 STRESS_PID=$(run_on "$NODE1" "pgrep -P $STRESS_MGR")
 
 echo ""
-show_location "migtest" "$STRESS_PID" "$NODE1"
+show_location "migtest" "$NODE1"
 
 for i in $(seq 1 5); do
     echo ""
@@ -312,7 +328,7 @@ for i in $(seq 1 5); do
     do_migrate "migtest" "$STRESS_PID" "$NODE1" "$NODE2" "$NODE2_ID"
     sleep 6
     if run_on "$NODE2" "ps aux" | grep -q "[m]igtest"; then
-        show_location "migtest (Surrogate)" "$STRESS_PID" "$NODE2"
+        show_location "migtest" "$NODE2"
         pass "test3: cycle $i forward — migtest on $NODE2"
     else
         fail "test3: lost at cycle $i (forward migration)"
@@ -322,7 +338,7 @@ for i in $(seq 1 5); do
     do_migrate "migtest" "$STRESS_PID" "$NODE1" "$NODE1" "home"
     sleep 6
     if run_on "$NODE1" "ps aux" | grep -q "[m]igtest"; then
-        show_location "migtest" "$STRESS_PID" "$NODE1"
+        show_location "migtest" "$NODE1"
         pass "test3: cycle $i return — migtest back on $NODE1"
     else
         fail "test3: lost at cycle $i (return migration)"

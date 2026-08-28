@@ -33,7 +33,7 @@ wait_for_ssh "$NODE"
 if run_on "$NODE" '
     lsmod | grep -q "^mattx " &&
     lsmod | grep -q "^mattxfs " &&
-    sudo systemctl is-active --quiet mattx-discd &&
+    sudo systemctl is-active --quiet mattx &&
     mountpoint -q /mattxfs &&
     grep -q "(Local)" /proc/mattx/nodes 2>/dev/null
 ' 2>/dev/null; then

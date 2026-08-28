@@ -30,5 +30,6 @@ IFACE=$(run_on "$NODE1" \
     "ip -o addr show | awk '/192\\.168\\.100\\./ {print \$2}' | head -1")
 echo "[build] cluster interface on $NODE1: $IFACE"
 run_on "$NODE1" "sudo sed -i 's|^INTERFACE=.*|INTERFACE=${IFACE}|' /etc/mattx.conf"
+run_on "$NODE1" "sudo sed -i 's|^MATTXFS_ENABLED=.*|MATTXFS_ENABLED=true|' /etc/mattx.conf"
 
 echo "[build] done"

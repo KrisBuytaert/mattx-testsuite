@@ -98,3 +98,28 @@ check_prereqs() {
     }
     [ "$ok" -eq 1 ]
 }
+
+# Give every test script a full, timestamped transcript on disk (reports/,
+# gitignored) in addition to whatever the caller sees on stdout — so a
+# failing run can be handed back by report filename instead of pasted
+# output. Call as the first thing after TEST_DIR/DISTRO are known:
+#     auto_report_wrap "run-tests" "$@"
+# Re-execs the script once through `tee`, guarded by REPORT_ACTIVE to avoid
+# recursing forever; the child (real test run) inherits the guard and runs
+# normally, its combined stdout+stderr streamed live and captured to file.
+auto_report_wrap() {
+    local label="$1"; shift
+    [ -n "${REPORT_ACTIVE:-}" ] && return 0
+
+    local reports_dir="$TEST_DIR/reports"
+    mkdir -p "$reports_dir"
+    local report_file="$reports_dir/${label}-${DISTRO}-$(date +%Y%m%d-%H%M%S).txt"
+
+    echo "[report] full transcript: $report_file"
+    export REPORT_ACTIVE=1
+    local rc=0
+    "$0" "$@" 2>&1 | tee "$report_file" || rc=$?
+    echo ""
+    echo "Full report: $report_file"
+    exit "$rc"
+}

@@ -1,10 +1,10 @@
 #!/bin/bash
-# setup-eessi.sh <alma|deb> <1|2>
+# setup-eessi.sh <alma|deb|ubu> <1|2>
 # Install CVMFS client + configure EESSI on a cluster node.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb> <1|2>}"
-NODE_NUM="${2:?Usage: $0 <alma|deb> <1|2>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu> <1|2>}"
+NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
@@ -13,7 +13,9 @@ case "$DISTRO-$NODE_NUM" in
     alma-2) NODE="almanode2" ;;
     deb-1)  NODE="debnode1"  ;;
     deb-2)  NODE="debnode2"  ;;
-    *) echo "Usage: $0 <alma|deb> <1|2>" >&2; exit 1 ;;
+    ubu-1)  NODE="ubunode1"  ;;
+    ubu-2)  NODE="ubunode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu> <1|2>" >&2; exit 1 ;;
 esac
 
 init_cluster "$DISTRO"
@@ -35,13 +37,13 @@ case "$DISTRO" in
             fi
         "
         ;;
-    deb)
+    deb|ubu)
         run_on "$NODE" "
             set -e
             if dpkg -l cvmfs 2>/dev/null | grep -q '^ii'; then
                 echo '[eessi] CVMFS already installed'
             else
-                echo '[eessi] installing CVMFS on Debian...'
+                echo '[eessi] installing CVMFS on ${DISTRO}...'
                 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y lsb-release wget autofs
                 TMP=\$(mktemp -d)
                 wget -q -O \"\$TMP/cvmfs-release-latest_all.deb\" \

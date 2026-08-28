@@ -22,23 +22,20 @@ init_cluster "$DISTRO"
 wait_for_ssh "$NODE"
 
 echo "[start] unloading MattX modules on $NODE..."
-run_on "$NODE" "sudo systemctl stop mattx-discd 2>/dev/null || true"
+run_on "$NODE" "sudo systemctl stop mattx 2>/dev/null || true"
 run_on "$NODE" "sudo umount /mattxfs 2>/dev/null || true"
 run_on "$NODE" "sudo rmmod mattxfs 2>/dev/null || true"
 run_on "$NODE" "sudo rmmod mattx    2>/dev/null || true"
 
-echo "[start] loading MattX modules on $NODE..."
-run_on "$NODE" "sudo insmod ~/mattx/mattx.ko"
-run_on "$NODE" "sudo insmod ~/mattx/mattxfs/mattxfs.ko"
-
-echo "[start] starting mattx-discd on $NODE..."
+# The mattx.service unit (init/mattx, installed by `make install`) now loads
+# both kernel modules, starts mattx-discd, and mounts MattXFS itself in one
+# unified start() — insmod/mount by hand here would just be redundant with
+# (and could race) what the service already does.
+echo "[start] starting mattx on $NODE (loads modules, starts discd, mounts MattXFS)..."
 run_on "$NODE" "sudo systemctl daemon-reload"
-run_on "$NODE" "sudo systemctl restart mattx-discd"
+run_on "$NODE" "sudo systemctl restart mattx"
 
 echo "[start] disabling balancer on $NODE..."
 run_on "$NODE" "echo 'balancer 0' | sudo tee /proc/mattx/admin > /dev/null"
-
-echo "[start] mounting MattXFS on $NODE..."
-run_on "$NODE" "sudo mount -t mattxfs none /mattxfs"
 
 echo "[start] $NODE is running MattX"
