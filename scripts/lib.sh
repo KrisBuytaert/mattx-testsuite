@@ -14,6 +14,7 @@ node_ip() {
     case "$1" in
         almanode1) echo "192.168.100.11" ;;
         almanode2) echo "192.168.100.12" ;;
+        almanode3) echo "192.168.100.13" ;;
         debnode1)  echo "192.168.100.21" ;;
         debnode2)  echo "192.168.100.22" ;;
         ubunode1)  echo "192.168.100.31" ;;
@@ -107,6 +108,27 @@ check_prereqs() {
 # Re-execs the script once through `tee`, guarded by REPORT_ACTIVE to avoid
 # recursing forever; the child (real test run) inherits the guard and runs
 # normally, its combined stdout+stderr streamed live and captured to file.
+# Numeric per-node "cursor" into the kernel ring buffer (seconds of uptime
+# at capture time), for scoping a later oops/BUG scan to only what's new
+# since this test run started. Without it, a pre-existing oops from an
+# earlier session (or an earlier test in the same run) makes every
+# subsequent check report a false "kernel oops" forever; conversely, ring
+# buffer rotation under load could scroll a genuinely new oops out of a
+# fixed `tail -N` before it's ever seen.
+dmesg_cursor() {
+    local node="$1"
+    run_on "$node" "cat /proc/uptime | awk '{print \$1}'" 2>/dev/null || echo 0
+}
+
+# True (exit 0) if no Oops/BUG line in dmesg on $node has a timestamp newer
+# than $cursor (a value previously captured via dmesg_cursor on that node).
+no_new_oops() {
+    local node="$1" cursor="$2"
+    ! run_on "$node" "sudo dmesg" 2>/dev/null | awk -v c="$cursor" '
+        { ts = $1; gsub(/[][]/, "", ts); if ((ts + 0) > (c + 0)) print }
+    ' | grep -q "Oops\|BUG: unable to handle\|kernel BUG"
+}
+
 auto_report_wrap() {
     local label="$1"; shift
     [ -n "${REPORT_ACTIVE:-}" ] && return 0

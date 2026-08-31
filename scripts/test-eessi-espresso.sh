@@ -132,6 +132,16 @@ do_migrate() {
     run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
 }
 
+# Runs on any script exit (normal completion, an early `exit 1`, or an
+# uncaught error under `set -e`) so a job started on whichever node it
+# happened to be on at the time doesn't outlive the test. Safe to call
+# multiple times / before the PID var is even set.
+cleanup() {
+    run_on "$NODE1" "kill -9 ${JOB_PID:-} 2>/dev/null || true; pkill -9 -f '[e]spresso_migtest' 2>/dev/null || true" 2>/dev/null || true
+    run_on "$NODE2" "pkill -9 -f '[e]spresso_migtest' 2>/dev/null || true" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 echo "=== ESPResSo / EESSI tests on ${DISTRO} cluster (EESSI ${EESSI_VERSION}) ==="
 echo ""
 
@@ -178,6 +188,8 @@ echo "=== Test 3: ESPResSo migration via MattX ==="
 
 NODE1_ID=$(run_on "$NODE1" "cat /proc/mattx/nodes 2>/dev/null" | awk '/\(Local\)/{print $1}' || true)
 NODE2_ID=$(run_on "$NODE2" "cat /proc/mattx/nodes 2>/dev/null" | awk '/\(Local\)/{print $1}' || true)
+DMESG_CURSOR_NODE1=$(dmesg_cursor "$NODE1")
+DMESG_CURSOR_NODE2=$(dmesg_cursor "$NODE2")
 if [ -z "$NODE1_ID" ] || [ -z "$NODE2_ID" ]; then
     fail "espresso-3: MattX not running on $NODE1/$NODE2 — run 'make ${DISTRO}cluster' first"
 else
@@ -244,17 +256,23 @@ PYEOF
         if [[ -n "$STAT2" && "$STAT2" != T* && "$STAT2" != Z* ]]; then
             pass "espresso-3: ESPResSo process still running on $NODE2 after 15s"
 
-            # ---- Return leg: migrate back NODE2 -> NODE1 ----
-            # Must use the Surrogate's own LOCAL PID on $NODE2, not
-            # $TARGET_PID (the home node's PID) -- mattx-stub is a distinct
-            # process with its own PID on the remote kernel, and
-            # admin_write's "migrate <pid> <node>" path looks up <pid> via
-            # pid_task() on whichever node it's sent to. Sending a PID that
-            # doesn't exist there triggers a real kernel bug (NULL-deref in
-            # admin_write, see mattx#8) rather than the intended "PID not
-            # found" error.
-            SURROGATE_PID=$(run_on "$NODE2" "ps -eo pid,cmd --no-headers | grep -iE -- 'pypresso|espresso_migtest' | grep -v grep | awk '{print \$1}' | head -1")
-            do_migrate "pypresso (ESPResSo)" "$SURROGATE_PID" "$NODE2" "$NODE1" "$NODE1_ID"
+            # ---- Return leg: recall home, NODE2 -> NODE1 ----
+            # The "home" recall path (admin_write's "migrate <pid> home" ->
+            # mattx_trigger_recall) is DIFFERENT from the generic
+            # "migrate <pid> <node>" path and must be issued ON THE HOME
+            # NODE ($NODE1), using the ORIGINAL PID ($TARGET_PID) --
+            # mattx_trigger_recall() looks up the export_registry entry for
+            # orig_pid, which only exists on the node that originally
+            # exported it, then sends a RECALL_REQ to wherever the guest
+            # currently lives. Using $NODE2/the Surrogate's local PID here
+            # (as the generic migrate path requires) instead hits "PID is
+            # not in the export registry. Cannot recall" -- or, if sent as
+            # a plain numeric-node migrate instead of "home", silently
+            # takes the generic forward-migrate path, which doesn't handle
+            # re-targeting a PID that already has a stale Deputy/registry
+            # entry on the destination and can crash the process right
+            # after wake.
+            do_migrate "pypresso (ESPResSo)" "$TARGET_PID" "$NODE1" "$NODE1" "home"
             sleep 8
 
             show_both_nodes "immediately after return migration ($NODE2 -> $NODE1)" "pypresso|espresso_migtest"
@@ -295,18 +313,22 @@ PYEOF
         run_on "$NODE1" "sudo dmesg | tail -20" | sed 's/^/    /' || true
     fi
 
-    run_on "$NODE1" "kill $JOB_PID 2>/dev/null || true; pkill -f espresso_migtest 2>/dev/null || true"
-    run_on "$NODE2" "pkill -f espresso_migtest 2>/dev/null || true"
+    # pkill -9 -f matches its OWN argv too (which literally contains
+    # "espresso_migtest"), so an unguarded pattern kills its own remote
+    # shell/SSH session before "|| true" ever gets a chance to run -- use
+    # the standard bracket trick to keep it from self-matching.
+    run_on "$NODE1" "kill -9 $JOB_PID 2>/dev/null || true; pkill -9 -f '[e]spresso_migtest' 2>/dev/null || true"
+    run_on "$NODE2" "pkill -9 -f '[e]spresso_migtest' 2>/dev/null || true"
 
-    if run_on "$NODE1" "sudo dmesg" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
-        fail "espresso-3: kernel oops on $NODE1"
-    else
+    if no_new_oops "$NODE1" "$DMESG_CURSOR_NODE1"; then
         pass "espresso-3: no kernel oops on $NODE1"
-    fi
-    if run_on "$NODE2" "sudo dmesg" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
-        fail "espresso-3: kernel oops on $NODE2"
     else
+        fail "espresso-3: kernel oops on $NODE1"
+    fi
+    if no_new_oops "$NODE2" "$DMESG_CURSOR_NODE2"; then
         pass "espresso-3: no kernel oops on $NODE2"
+    else
+        fail "espresso-3: kernel oops on $NODE2"
     fi
 fi
 

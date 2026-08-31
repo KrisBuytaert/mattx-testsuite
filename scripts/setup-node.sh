@@ -8,14 +8,18 @@ NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
+# PEERS is a space-separated "host ip" list, one pair per peer -- alma has a
+# 3rd node (for round-trip chain migration tests: node1 -> node2 -> node3 ->
+# node1), so an alma node's peer list has two entries; deb/ubu stay 2-node.
 case "$DISTRO-$NODE_NUM" in
-    alma-1) NODE="almanode1"; PEER="almanode2"; PEER_IP="192.168.100.12" ;;
-    alma-2) NODE="almanode2"; PEER="almanode1"; PEER_IP="192.168.100.11" ;;
-    deb-1)  NODE="debnode1";  PEER="debnode2";  PEER_IP="192.168.100.22" ;;
-    deb-2)  NODE="debnode2";  PEER="debnode1";  PEER_IP="192.168.100.21" ;;
-    ubu-1)  NODE="ubunode1";  PEER="ubunode2";  PEER_IP="192.168.100.31" ;;
-    ubu-2)  NODE="ubunode2";  PEER="ubunode1";  PEER_IP="192.168.100.32" ;;
-    *) echo "Usage: $0 <alma|deb|ubu> <1|2>" >&2; exit 1 ;;
+    alma-1) NODE="almanode1"; PEERS="almanode2 192.168.100.12 almanode3 192.168.100.13" ;;
+    alma-2) NODE="almanode2"; PEERS="almanode1 192.168.100.11 almanode3 192.168.100.13" ;;
+    alma-3) NODE="almanode3"; PEERS="almanode1 192.168.100.11 almanode2 192.168.100.12" ;;
+    deb-1)  NODE="debnode1";  PEERS="debnode2 192.168.100.22" ;;
+    deb-2)  NODE="debnode2";  PEERS="debnode1 192.168.100.21" ;;
+    ubu-1)  NODE="ubunode1";  PEERS="ubunode2 192.168.100.32" ;;
+    ubu-2)  NODE="ubunode2";  PEERS="ubunode1 192.168.100.31" ;;
+    *) echo "Usage: $0 <alma|deb|ubu> <1|2|3 (alma only)>" >&2; exit 1 ;;
 esac
 
 init_cluster "$DISTRO"
@@ -87,9 +91,13 @@ case "$DISTRO" in
         ;;
 esac
 
-echo "[setup] adding $PEER to /etc/hosts on $NODE..."
-HOSTS_LINE="$PEER_IP $PEER"
-run_on "$NODE" "grep -qF '$PEER' /etc/hosts || echo '$HOSTS_LINE' | sudo tee -a /etc/hosts >/dev/null"
+set -- $PEERS
+while [ "$#" -ge 2 ]; do
+    PEER="$1"; PEER_IP="$2"; shift 2
+    echo "[setup] adding $PEER to /etc/hosts on $NODE..."
+    HOSTS_LINE="$PEER_IP $PEER"
+    run_on "$NODE" "grep -qF '$PEER' /etc/hosts || echo '$HOSTS_LINE' | sudo tee -a /etc/hosts >/dev/null"
+done
 
 run_on "$NODE" "sudo mkdir -p /mattxfs"
 

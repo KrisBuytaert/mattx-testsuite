@@ -21,7 +21,8 @@ case "$DISTRO" in
         case "$NODE_NUM" in
             1) MAC="52:54:00:0a:00:11" ;;
             2) MAC="52:54:00:0a:00:12" ;;
-            *) echo "ERROR: node num must be 1 or 2" >&2; exit 1 ;;
+            3) MAC="52:54:00:0a:00:13" ;;
+            *) echo "ERROR: node num must be 1, 2, or 3 for alma" >&2; exit 1 ;;
         esac
         ;;
     deb)

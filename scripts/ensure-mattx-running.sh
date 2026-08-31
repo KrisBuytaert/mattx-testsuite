@@ -22,9 +22,10 @@ source "$SCRIPT_DIR/lib.sh"
 case "$DISTRO-$NODE_NUM" in
     alma-1) NODE="almanode1" ;;
     alma-2) NODE="almanode2" ;;
+    alma-3) NODE="almanode3" ;;
     deb-1)  NODE="debnode1"  ;;
     deb-2)  NODE="debnode2"  ;;
-    *) echo "Usage: $0 <alma|deb> <1|2>" >&2; exit 1 ;;
+    *) echo "Usage: $0 <alma|deb> <1|2|3 (alma only)>" >&2; exit 1 ;;
 esac
 
 init_cluster "$DISTRO"

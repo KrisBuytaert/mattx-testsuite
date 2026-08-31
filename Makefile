@@ -4,18 +4,25 @@ STAMP    := .stamp
 KEYS_DIR := keys
 
 # Fixed IPs for reference
-# almanode1: 192.168.100.11   almanode2: 192.168.100.12
+# almanode1: 192.168.100.11   almanode2: 192.168.100.12   almanode3: 192.168.100.13 (chain-migration tests only)
 # debnode1:  192.168.100.21   debnode2:  192.168.100.22
 # ubunode1:  192.168.100.31   ubunode2:  192.168.100.32
 
-.PHONY: all alma debian ubuntu almacluster debcluster ubucluster allclusters \
-        upgrade-alma upgrade-deb upgrade-ubu \
-        test-alma test-deb test-ubu ensure-alma-running ensure-deb-running \
-        setup-eessi-alma setup-eessi-deb setup-eessi-ubu \
+.PHONY: all alma debian ubuntu almacluster almacluster3 debcluster ubucluster allclusters \
+        upgrade-alma upgrade-alma3 upgrade-deb upgrade-ubu \
+        test-alma test-deb test-ubu ensure-alma-running ensure-alma-running3 ensure-deb-running \
+        setup-eessi-alma setup-eessi-alma3 setup-eessi-deb setup-eessi-ubu \
         test-eessi-alma test-eessi-deb test-eessi-ubu \
         test-eessi-espresso-alma test-eessi-espresso-deb test-eessi-espresso-ubu \
         test-eessi-gromacs-alma test-eessi-gromacs-deb test-eessi-gromacs-ubu \
-        start-alma start-deb start-ubu start \
+        test-eessi-gromacs-chain-alma \
+        test-eessi-quantumespresso-alma test-eessi-quantumespresso-deb test-eessi-quantumespresso-ubu \
+        test-eessi-openfoam-alma test-eessi-openfoam-deb test-eessi-openfoam-ubu \
+        test-eessi-pytorch-alma test-eessi-pytorch-deb test-eessi-pytorch-ubu \
+        test-eessi-tensorflow-alma test-eessi-tensorflow-deb test-eessi-tensorflow-ubu \
+        test-eessi-bioconductor-alma test-eessi-bioconductor-deb test-eessi-bioconductor-ubu \
+        test-eessi-nextflow-alma test-eessi-nextflow-deb test-eessi-nextflow-ubu \
+        start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
         status \
         clean-alma clean-deb clean-ubu clean \
@@ -30,6 +37,7 @@ all:
 	@echo "  make debian        provision single Debian 13 node   (debnode1)"
 	@echo "  make ubuntu        provision single Ubuntu 26.04 node (ubunode1)"
 	@echo "  make almacluster   2-node AlmaLinux cluster: provision + build + start MattX"
+	@echo "  make almacluster3  3-node AlmaLinux cluster: adds almanode3 for chain-migration tests"
 	@echo "  make debcluster    2-node Debian cluster:    provision + build + start MattX"
 	@echo "  make ubucluster    2-node Ubuntu cluster:    provision + build + start MattX"
 	@echo "  make allclusters   both clusters"
@@ -68,6 +76,7 @@ all:
 	@echo "  make test-eessi-gromacs-alma   run GROMACS tests on AlmaLinux cluster"
 	@echo "  make test-eessi-gromacs-deb    run GROMACS tests on Debian cluster"
 	@echo "  make test-eessi-gromacs-ubu    run GROMACS tests on Ubuntu cluster"
+	@echo "  make test-eessi-gromacs-chain-alma  run 3-node GROMACS chain migration (node1->2->3->1)"
 	@echo ""
 	@echo "Destruction (deletes disks — requires full reprovision):"
 	@echo "  make clean-alma    destroy AlmaLinux VMs and disks"
@@ -123,6 +132,7 @@ $(STAMP)/network: | check $(STAMP)
 	$(SCRIPTS)/ensure-libvirt-network.sh mattx-test 192.168.100.1 mattxbr0 \
 		52:54:00:0a:00:11=192.168.100.11 \
 		52:54:00:0a:00:12=192.168.100.12 \
+		52:54:00:0a:00:13=192.168.100.13 \
 		52:54:00:0b:00:21=192.168.100.21 \
 		52:54:00:0b:00:22=192.168.100.22 \
 		52:54:00:0b:00:31=192.168.100.31 \
@@ -136,6 +146,14 @@ $(STAMP)/alma-vms: $(STAMP)/network | keys
 	$(SCRIPTS)/create-vm.sh alma 2
 	$(SCRIPTS)/setup-node.sh alma 1
 	$(SCRIPTS)/setup-node.sh alma 2
+	@touch $@
+
+# 3rd AlmaLinux node, for chain-migration tests only (node1 -> node2 ->
+# node3 -> node1). Kept separate from alma-vms so the ordinary 2-node alma
+# workflow never provisions a VM it doesn't need.
+$(STAMP)/alma-vms3: $(STAMP)/alma-vms
+	$(SCRIPTS)/create-vm.sh alma 3
+	$(SCRIPTS)/setup-node.sh alma 3
 	@touch $@
 
 $(STAMP)/deb-vms: $(STAMP)/network | keys
@@ -168,6 +186,12 @@ $(STAMP)/ubu-built: $(STAMP)/ubu-vms
 
 $(STAMP)/alma-deployed: $(STAMP)/alma-built
 	$(SCRIPTS)/deploy-mattx.sh alma
+	@touch $@
+
+# 3rd node's build/deploy, layered on top of the normal 2-node ones -- node1
+# is already built by alma-built; this just also deploys to almanode3.
+$(STAMP)/alma-deployed3: $(STAMP)/alma-deployed $(STAMP)/alma-vms3
+	$(SCRIPTS)/deploy-mattx.sh alma almanode3
 	@touch $@
 
 $(STAMP)/deb-deployed: $(STAMP)/deb-built
@@ -207,6 +231,22 @@ almacluster: $(STAMP)/alma-deployed
 	@echo "  almanode2: 192.168.100.12"
 	@echo "  ssh mattx@192.168.100.11 -i $(KEYS_DIR)/mattx_test"
 
+# 3-node AlmaLinux cluster, for chain-migration tests (node1 -> node2 ->
+# node3 -> node1). Brings up node3 in addition to the normal 2-node cluster.
+# Depends on ensure-alma-running (not almacluster/start-mattx.sh) for nodes
+# 1/2 -- start-mattx.sh's unconditional rmmod/insmod reload is unsafe on a
+# cluster that's already up and connected (mt-985.2 / mt-463); node3 itself
+# is safe via start-mattx.sh since it's freshly provisioned and was never
+# connected to anything yet.
+almacluster3: ensure-alma-running $(STAMP)/alma-deployed3
+	$(SCRIPTS)/start-mattx.sh alma 3
+	@echo ""
+	@echo "AlmaLinux 3-node cluster ready:"
+	@echo "  almanode1: 192.168.100.11"
+	@echo "  almanode2: 192.168.100.12"
+	@echo "  almanode3: 192.168.100.13"
+	@echo "  ssh mattx@192.168.100.11 -i $(KEYS_DIR)/mattx_test"
+
 debcluster: $(STAMP)/deb-deployed
 	$(SCRIPTS)/start-mattx.sh deb 1
 	$(SCRIPTS)/start-mattx.sh deb 2
@@ -235,6 +275,10 @@ upgrade-alma:
 	$(SCRIPTS)/start-mattx.sh alma 1
 	$(SCRIPTS)/start-mattx.sh alma 2
 
+upgrade-alma3: upgrade-alma
+	$(SCRIPTS)/deploy-mattx.sh alma almanode3
+	$(SCRIPTS)/start-mattx.sh alma 3
+
 upgrade-deb:
 	$(SCRIPTS)/build-mattx.sh deb
 	$(SCRIPTS)/deploy-mattx.sh deb
@@ -260,6 +304,10 @@ ensure-alma-running:
 	$(SCRIPTS)/ensure-mattx-running.sh alma 1
 	$(SCRIPTS)/ensure-mattx-running.sh alma 2
 
+ensure-alma-running3: ensure-alma-running
+	virsh start almanode3 2>/dev/null || true
+	$(SCRIPTS)/ensure-mattx-running.sh alma 3
+
 ensure-deb-running:
 	virsh start debnode1 2>/dev/null || true
 	virsh start debnode2 2>/dev/null || true
@@ -282,6 +330,10 @@ $(STAMP)/alma-eessi: $(STAMP)/alma-vms
 	$(SCRIPTS)/setup-eessi.sh alma 2
 	@touch $@
 
+$(STAMP)/alma-eessi3: $(STAMP)/alma-eessi $(STAMP)/alma-deployed3
+	$(SCRIPTS)/setup-eessi.sh alma 3
+	@touch $@
+
 $(STAMP)/deb-eessi: $(STAMP)/deb-vms
 	$(SCRIPTS)/setup-eessi.sh deb 1
 	$(SCRIPTS)/setup-eessi.sh deb 2
@@ -293,6 +345,8 @@ $(STAMP)/ubu-eessi: $(STAMP)/ubu-vms
 	@touch $@
 
 setup-eessi-alma: $(STAMP)/alma-eessi
+
+setup-eessi-alma3: $(STAMP)/alma-eessi3
 
 setup-eessi-deb: $(STAMP)/deb-eessi
 
@@ -318,6 +372,63 @@ test-eessi-gromacs-deb: $(STAMP)/deb-eessi
 test-eessi-gromacs-ubu: $(STAMP)/ubu-eessi
 	$(SCRIPTS)/test-eessi-gromacs.sh ubu
 
+test-eessi-gromacs-chain-alma: ensure-alma-running3 $(STAMP)/alma-eessi3
+	$(SCRIPTS)/test-eessi-gromacs-chain.sh alma
+
+test-eessi-quantumespresso-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-quantumespresso.sh alma
+
+test-eessi-quantumespresso-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-quantumespresso.sh deb
+
+test-eessi-quantumespresso-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-quantumespresso.sh ubu
+
+test-eessi-openfoam-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-openfoam.sh alma
+
+test-eessi-openfoam-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-openfoam.sh deb
+
+test-eessi-openfoam-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-openfoam.sh ubu
+
+test-eessi-pytorch-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-pytorch.sh alma
+
+test-eessi-pytorch-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-pytorch.sh deb
+
+test-eessi-pytorch-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-pytorch.sh ubu
+
+test-eessi-bioconductor-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-bioconductor.sh alma
+
+test-eessi-bioconductor-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-bioconductor.sh deb
+
+test-eessi-bioconductor-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-bioconductor.sh ubu
+
+test-eessi-tensorflow-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-tensorflow.sh alma
+
+test-eessi-tensorflow-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-tensorflow.sh deb
+
+test-eessi-tensorflow-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-tensorflow.sh ubu
+
+test-eessi-nextflow-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-nextflow.sh alma
+
+test-eessi-nextflow-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-nextflow.sh deb
+
+test-eessi-nextflow-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-nextflow.sh ubu
+
 test-eessi-alma: $(STAMP)/alma-eessi
 	$(SCRIPTS)/test-eessi.sh alma
 
@@ -332,6 +443,7 @@ test-eessi-ubu: $(STAMP)/ubu-eessi
 stop-alma:
 	virsh shutdown almanode1 2>/dev/null || true
 	virsh shutdown almanode2 2>/dev/null || true
+	virsh shutdown almanode3 2>/dev/null || true
 	@echo "[stop] AlmaLinux VMs shutting down"
 
 stop-deb:
@@ -353,6 +465,14 @@ start-alma:
 	$(SCRIPTS)/start-mattx.sh alma 1
 	$(SCRIPTS)/start-mattx.sh alma 2
 	@echo "[start] AlmaLinux cluster ready"
+
+# Only for clusters that provisioned almanode3 (make almacluster3) -- kept out
+# of start-alma/start since starting a node that was never provisioned would
+# hang in wait_for_ssh.
+start-alma3: start-alma
+	virsh start almanode3 2>/dev/null || true
+	$(SCRIPTS)/start-mattx.sh alma 3
+	@echo "[start] AlmaLinux 3-node cluster ready"
 
 start-deb:
 	virsh start debnode1 2>/dev/null || true
@@ -376,7 +496,7 @@ start: start-alma start-deb start-ubu
 
 status:
 	@echo "=== VM power states ==="
-	@for vm in almanode1 almanode2 debnode1 debnode2 ubunode1 ubunode2; do \
+	@for vm in almanode1 almanode2 almanode3 debnode1 debnode2 ubunode1 ubunode2; do \
 	    state=$$(virsh domstate $$vm 2>/dev/null || echo "not defined"); \
 	    printf "  %-12s %s\n" "$$vm" "$$state"; \
 	done
@@ -389,6 +509,7 @@ status:
 clean-alma:
 	$(SCRIPTS)/destroy-vm.sh almanode1
 	$(SCRIPTS)/destroy-vm.sh almanode2
+	$(SCRIPTS)/destroy-vm.sh almanode3
 	@rm -f $(STAMP)/alma-*
 
 clean-deb:

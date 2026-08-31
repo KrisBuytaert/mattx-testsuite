@@ -146,6 +146,16 @@ do_migrate() {
     run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
 }
 
+# Runs on any script exit (normal completion, an early `exit 1`, or an
+# uncaught error under `set -e`) so a job started on whichever node it
+# happened to be on at the time doesn't outlive the test. Safe to call
+# multiple times / before the PID vars are even set.
+cleanup() {
+    run_on "$NODE1" "kill -9 ${GMX_PID:-} ${EXPEL_GMX_PID:-} 2>/dev/null || true; pkill -9 -f '[g]mx mdrun' 2>/dev/null || true" 2>/dev/null || true
+    run_on "$NODE2" "pkill -9 -f '[g]mx mdrun' 2>/dev/null || true" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 echo "=== GROMACS / EESSI tests on ${DISTRO} cluster (EESSI ${EESSI_VERSION}) ==="
 echo ""
 
@@ -219,6 +229,8 @@ echo "=== Test 3: GROMACS round-trip migration via MattX ==="
 
 NODE1_ID=$(run_on "$NODE1" "cat /proc/mattx/nodes 2>/dev/null" | awk '/\(Local\)/{print $1}' || true)
 NODE2_ID=$(run_on "$NODE2" "cat /proc/mattx/nodes 2>/dev/null" | awk '/\(Local\)/{print $1}' || true)
+DMESG_CURSOR_NODE1=$(dmesg_cursor "$NODE1")
+DMESG_CURSOR_NODE2=$(dmesg_cursor "$NODE2")
 if [ -z "$NODE1_ID" ] || [ -z "$NODE2_ID" ]; then
     fail "gromacs-3: MattX not running on $NODE1/$NODE2 — run 'make ${DISTRO}cluster' first"
 else
@@ -247,6 +259,13 @@ else
         show_threads "gmx mdrun" "$NODE1"
         echo "  Log tail from $NODE1:"
         run_on "$NODE1" "tail -5 /tmp/gromacs_migtest.log 2>/dev/null || true" | sed 's/^/    /'
+        # ener.edr (GROMACS's binary energy-trajectory file) was tried as a
+        # progress checkpoint here, but confirmed via live testing to stay
+        # at 0 bytes for this benchmark's whole ~30-45s test window --
+        # ion_channel.tpr's nstenergy interval is coarser than that, so
+        # requiring growth produced false failures on a genuinely-progressing
+        # run. Captured for the report only, not used to gate pass/fail.
+        SIZE_BEFORE=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
 
         do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE2" "$NODE2_ID"
         sleep 8
@@ -263,20 +282,28 @@ else
             sleep 15
             show_both_nodes "15s after outbound migration (settled state)" "gmx mdrun"
             STAT2=$(process_stat "gmx mdrun" "$NODE2")
+            SIZE_AFTER=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
             if [[ -n "$STAT2" && "$STAT2" != T* && "$STAT2" != Z* ]]; then
-                pass "gromacs-3: gmx mdrun still running on $NODE2 after 15s"
+                pass "gromacs-3: gmx mdrun still running on $NODE2 after 15s (ener.edr $SIZE_BEFORE -> $SIZE_AFTER bytes, informational)"
 
-                # ---- Return leg: migrate back NODE2 -> NODE1 ----
-                # Must use the Surrogate's own LOCAL PID on $NODE2, not
-                # $GMX_PID (the home node's PID) -- mattx-stub is a distinct
-                # process with its own PID on the remote kernel, and
-                # admin_write's "migrate <pid> <node>" path looks up <pid>
-                # via pid_task() on whichever node it's sent to. Sending a
-                # PID that doesn't exist there triggers a real kernel bug
-                # (NULL-deref in admin_write, see mattx#8) rather than the
-                # intended "PID not found" error.
-                SURROGATE_PID=$(run_on "$NODE2" "ps -eo pid,cmd --no-headers | grep -iE -- 'gmx mdrun' | grep -v grep | awk '{print \$1}' | head -1")
-                do_migrate "gmx mdrun" "$SURROGATE_PID" "$NODE2" "$NODE1" "$NODE1_ID"
+                # ---- Return leg: recall home, NODE2 -> NODE1 ----
+                # The "home" recall path (admin_write's "migrate <pid> home"
+                # -> mattx_trigger_recall) is DIFFERENT from the generic
+                # "migrate <pid> <node>" path and must be issued ON THE HOME
+                # NODE ($NODE1), using the ORIGINAL PID ($GMX_PID) --
+                # mattx_trigger_recall() looks up the export_registry entry
+                # for orig_pid, which only exists on the node that originally
+                # exported it, then sends a RECALL_REQ to wherever the guest
+                # currently lives. Using $NODE2/the Surrogate's local PID
+                # here (as the generic migrate path requires) instead hits
+                # "PID is not in the export registry. Cannot recall" -- or,
+                # if sent as a plain numeric-node migrate instead of "home",
+                # silently takes the generic forward-migrate path, which
+                # doesn't handle re-targeting a PID that already has a stale
+                # Deputy/registry entry on the destination and reliably GPFs
+                # the process right after wake (this was previously
+                # misdiagnosed as several distinct return-leg bugs).
+                do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE1" "home"
                 sleep 8
 
                 show_both_nodes "immediately after return migration ($NODE2 -> $NODE1)" "gmx mdrun"
@@ -288,11 +315,13 @@ else
                     run_on "$NODE1" "tail -5 /tmp/gromacs_migtest.log 2>/dev/null || true" | sed 's/^/    /'
                     pass "gromacs-4: gmx mdrun migrated back to $NODE1"
 
+                    SIZE_RETURN=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
                     sleep 15
                     show_both_nodes "15s after return migration (settled state)" "gmx mdrun"
                     STAT4=$(process_stat "gmx mdrun" "$NODE1")
+                    SIZE_FINAL=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
                     if [[ -n "$STAT4" && "$STAT4" != T* && "$STAT4" != Z* ]]; then
-                        pass "gromacs-4: gmx mdrun still running on $NODE1 after 15s (round trip complete)"
+                        pass "gromacs-4: gmx mdrun still running on $NODE1 after 15s (round trip complete, ener.edr $SIZE_RETURN -> $SIZE_FINAL bytes, informational)"
                     elif [ -n "$STAT4" ]; then
                         fail "gromacs-4: gmx mdrun present on $NODE1 but frozen (STAT=$STAT4) -- looks stuck/deadlocked, not completed (see mattx#8)"
                     else
@@ -321,20 +350,128 @@ else
             run_on "$NODE1" "sudo dmesg | tail -20" | sed 's/^/    /' || true
         fi
 
-        run_on "$NODE1" "kill $GMX_PID 2>/dev/null || true; pkill gmx 2>/dev/null || true"
-        run_on "$NODE2" "pkill gmx 2>/dev/null || true"
+        # pkill -9 -f matches its OWN argv too (which literally contains "gmx
+        # mdrun"), so an unguarded pattern kills its own remote shell/SSH
+        # session before "|| true" ever gets a chance to run -- use the
+        # standard bracket trick to keep it from self-matching. Matching on
+        # the full "gmx mdrun" command line (not bare "gmx") also avoids
+        # killing an unrelated GROMACS subcommand that happens to be running
+        # on the same node.
+        run_on "$NODE1" "kill -9 $GMX_PID 2>/dev/null || true; pkill -9 -f '[g]mx mdrun' 2>/dev/null || true"
+        run_on "$NODE2" "pkill -9 -f '[g]mx mdrun' 2>/dev/null || true"
     fi
 
-    if run_on "$NODE1" "sudo dmesg" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
-        fail "gromacs-4: kernel oops on $NODE1"
-    else
+    if no_new_oops "$NODE1" "$DMESG_CURSOR_NODE1"; then
         pass "gromacs-4: no kernel oops on $NODE1"
-    fi
-    if run_on "$NODE2" "sudo dmesg" | grep -q "Oops\|BUG: unable to handle\|kernel BUG"; then
-        fail "gromacs-4: kernel oops on $NODE2"
     else
-        pass "gromacs-4: no kernel oops on $NODE2"
+        fail "gromacs-4: kernel oops on $NODE1"
     fi
+    if no_new_oops "$NODE2" "$DMESG_CURSOR_NODE2"; then
+        pass "gromacs-4: no kernel oops on $NODE2"
+    else
+        fail "gromacs-4: kernel oops on $NODE2"
+    fi
+fi
+
+# ---- Test 5: Return migration via "expel" (maintainer-recommended path) ----
+# Per https://github.com/brainmatt/mattx/issues/8#issuecomment-5458346309,
+# "migrate <pid> home" issued on the DESTINATION node is not supported --
+# the correct alternative is "expel <local-surrogate-pid>", issued ON THE
+# NODE HOSTING THE SURROGATE. This is deliberately independent of Test 3/4
+# above, which already correctly exercise "migrate <pid> home" issued on
+# the HOME node ($NODE1) -- the supported "recall" path (admin_write's
+# "home" branch -> mattx_trigger_recall()). Both "recall" and "expel"
+# ultimately call the same mattx_capture_and_return_state(); expel just
+# skips the network RECALL_REQ round-trip, calling it directly where the
+# surrogate already lives. Testing both gives independent coverage of the
+# two return-migration entry points sharing that one code path.
+_FAIL_T5=$FAIL
+echo ""
+echo "=== Test 5: GROMACS return migration via 'expel' ==="
+
+run_on "$NODE1" "cd $GROMACS_WORKDIR && rm -f ener.edr logfile_expel.log md.log"
+
+echo "  Starting a fresh gmx mdrun on $NODE1 for the expel round-trip..."
+EXPEL_GMX_PID=$(run_on "$NODE1" "
+    set -e
+    cd $GROMACS_WORKDIR
+    source '${EESSI_INIT}'
+    module load ${GROMACS_MODULE}
+    nohup gmx mdrun -s ion_channel.tpr -maxh 0.50 -resethway -noconfout \
+        -nsteps 20000 -g logfile_expel -ntmpi 1 -ntomp ${GROMACS_NTOMP} \
+        >/tmp/gromacs_expeltest.log 2>&1 &
+    echo \$!
+" | tail -1)
+sleep 10
+
+if ! run_on "$NODE1" "kill -0 $EXPEL_GMX_PID 2>/dev/null"; then
+    fail "gromacs-5: gmx mdrun exited before migration window — check /tmp/gromacs_expeltest.log"
+    run_on "$NODE1" "tail -20 /tmp/gromacs_expeltest.log 2>/dev/null || true" | sed 's/^/    /'
+else
+    SIZE_EXPEL_BEFORE=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
+    do_migrate "gmx mdrun (expel test)" "$EXPEL_GMX_PID" "$NODE1" "$NODE2" "$NODE2_ID"
+    sleep 8
+
+    show_both_nodes "immediately after outbound migration (expel test)" "gmx mdrun"
+    if is_actually_running "gmx mdrun" "$NODE2"; then
+        pass "gromacs-5: gmx mdrun migrated to $NODE2 (expel test)"
+
+        sleep 15
+        show_both_nodes "15s after outbound migration (expel test, settled state)" "gmx mdrun"
+        STAT_EXPEL=$(process_stat "gmx mdrun" "$NODE2")
+        SIZE_EXPEL_AFTER=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
+        if [[ -n "$STAT_EXPEL" && "$STAT_EXPEL" != T* && "$STAT_EXPEL" != Z* ]]; then
+            pass "gromacs-5: gmx mdrun still running on $NODE2 after 15s (expel test, ener.edr $SIZE_EXPEL_BEFORE -> $SIZE_EXPEL_AFTER bytes, informational)"
+
+            # ---- The actual point of this test: use "expel", not "home" recall ----
+            SURROGATE_PID_EXPEL=$(run_on "$NODE2" "ps -eo pid,cmd --no-headers | grep -iE -- 'gmx mdrun' | grep -v grep | awk '{print \$1}' | head -1")
+            echo "  Expelling local Surrogate PID $SURROGATE_PID_EXPEL on $NODE2 (blocks until finished)..."
+            run_on "$NODE2" "echo \"expel $SURROGATE_PID_EXPEL\" | sudo tee /proc/mattx/admin > /dev/null"
+
+            show_both_nodes "immediately after expel" "gmx mdrun"
+            if is_actually_running "gmx mdrun" "$NODE1"; then
+                pass "gromacs-5: gmx mdrun expelled back to $NODE1"
+
+                SIZE_EXPEL_RETURN=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
+                sleep 15
+                show_both_nodes "15s after expel (settled state)" "gmx mdrun"
+                STAT_EXPEL2=$(process_stat "gmx mdrun" "$NODE1")
+                SIZE_EXPEL_FINAL=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
+                if [[ -n "$STAT_EXPEL2" && "$STAT_EXPEL2" != T* && "$STAT_EXPEL2" != Z* ]]; then
+                    pass "gromacs-5: gmx mdrun still running on $NODE1 after 15s (expel round trip complete, ener.edr $SIZE_EXPEL_RETURN -> $SIZE_EXPEL_FINAL bytes, informational)"
+                elif [ -n "$STAT_EXPEL2" ]; then
+                    fail "gromacs-5: gmx mdrun present on $NODE1 but frozen (STAT=$STAT_EXPEL2) after expel"
+                else
+                    echo "  ► gmx mdrun [PID $EXPEL_GMX_PID] completed on $NODE1 after expel"
+                    pass "gromacs-5: gmx mdrun ran to completion on $NODE1 after expel round trip"
+                fi
+            else
+                fail "gromacs-5: gmx mdrun not actually running on $NODE1 after expel"
+                echo "  dmesg tail on $NODE2:"
+                run_on "$NODE2" "sudo dmesg | tail -20" | sed 's/^/    /' || true
+            fi
+        else
+            fail "gromacs-5: gmx mdrun present on $NODE2 but frozen (STAT=$STAT_EXPEL) before expel could be attempted"
+        fi
+    else
+        fail "gromacs-5: gmx mdrun not actually running on $NODE2 after migration (expel test)"
+        echo "  dmesg tail on $NODE1:"
+        run_on "$NODE1" "sudo dmesg | tail -20" | sed 's/^/    /' || true
+    fi
+
+    run_on "$NODE1" "kill -9 $EXPEL_GMX_PID 2>/dev/null || true; pkill -9 -f '[g]mx mdrun' 2>/dev/null || true"
+    run_on "$NODE2" "pkill -9 -f '[g]mx mdrun' 2>/dev/null || true"
+fi
+
+if no_new_oops "$NODE1" "$DMESG_CURSOR_NODE1"; then
+    pass "gromacs-5: no kernel oops on $NODE1"
+else
+    fail "gromacs-5: kernel oops on $NODE1"
+fi
+if no_new_oops "$NODE2" "$DMESG_CURSOR_NODE2"; then
+    pass "gromacs-5: no kernel oops on $NODE2"
+else
+    fail "gromacs-5: kernel oops on $NODE2"
 fi
 
 echo ""
