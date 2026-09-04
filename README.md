@@ -8,7 +8,7 @@ This is meant to easily spin up a test environment that allows you to test MattX
 
 
 Fully automated 2-node cluster provisioning and migration smoke tests for
-[MattX](../README.md), targeting Debian 13 (trixie), Ubuntu 26.04 and AlmaLinux 10.
+[MattX](https://github.com/brainmatt/mattx), targeting Debian 13 (trixie), Ubuntu 26.04 and AlmaLinux 10.
 
 VMs are created from official qcow2 cloud images using libvirt directly —
 no Vagrant, no OS installer. SSH keys and hostname configuration are injected

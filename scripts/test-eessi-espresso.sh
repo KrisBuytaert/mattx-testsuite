@@ -85,6 +85,8 @@ show_threads() {
     local pattern="$1" node="$2"
     local ip; ip="$(node_ip "$node")"
     local cmd="ps -eLo pid,tid,ppid,user,stat,%cpu,wchan:24,cmd --no-headers | grep -iE -- '$pattern' | grep -v grep"
+    echo ""
+    echo "  --- per-THREAD snapshot on $node (pattern: '$pattern') -- one row per thread (tid), not one row per process like the snapshot above ---"
     echo "  mattx@${node} (${ip})\$ $cmd"
     local out
     out="$(run_on "$node" "$cmd" 2>/dev/null || true)"
