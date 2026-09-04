@@ -201,13 +201,23 @@ show_deputy() {
 }
 
 # Announce and execute a migration.
+# $6 (actual_from) is optional and only needed for the "home" recall path,
+# where the admin command must be issued on the home node ($from) but the
+# job is actually currently running somewhere else -- without it, the log
+# misleadingly shows "from: home_node to: home_node" for a migration that's
+# really coming from wherever the job currently lives. Defaults to $from
+# (the ordinary forward-migration case, where they're the same node).
 do_migrate() {
-    local name="$1" pid="$2" from="$3" to="$4" to_id="$5"
+    local name="$1" pid="$2" from="$3" to="$4" to_id="$5" actual_from="${6:-$3}"
     echo ""
     echo "  ─────────────────────────────────────────────────────"
     echo "  Starting migration of $name [PID $pid]"
-    echo "    from : $from ($(node_ip "$from"))"
+    echo "    from : $actual_from ($(node_ip "$actual_from"))"
     echo "    to   : $to   ($(node_ip "$to"))  [node ID $to_id]"
+    if [ "$from" != "$actual_from" ]; then
+        echo "    (admin command issued on $from, the home node -- not on $actual_from, where the job actually is)"
+    fi
+    echo "    command: echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin   (run on $from)"
     echo "  ─────────────────────────────────────────────────────"
     run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
 }
@@ -296,7 +306,7 @@ if [[ "$PID" =~ ^[0-9]+$ ]]; then
         pass "test1: Surrogate running on $NODE2" || fail "test1: migtest not on $NODE2"
 
     sleep 5
-    do_migrate "migtest" "$PID" "$NODE1" "$NODE1" "home"
+    do_migrate "migtest" "$PID" "$NODE1" "$NODE1" "home" "$NODE2"
     sleep 3
 
     echo ""
@@ -368,10 +378,23 @@ if [[ "$SERVER_PID" =~ ^[0-9]+$ ]]; then
     fi
 
     if [ "$MIGRATED" -eq 1 ]; then
-        echo "  Checking TCP reachability on $NODE1_IP:8080 through wormhole..."
-        run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null" && \
-            pass "test2: wormhole still serves on $NODE1 IP ($NODE1_IP:8080)" || \
+        # The process showing up in `ps` (checked above) only means the task
+        # itself resumed -- the socket's bind()/listen() replay through the
+        # wormhole is a separate, slightly later step (same "many extra
+        # round trips" the comment above already calls out), so checking
+        # reachability the instant the process appears can race a listener
+        # that hasn't actually bound yet. Poll instead of checking once.
+        echo "  Checking TCP reachability on $NODE1_IP:8080 through wormhole (up to 20s)..."
+        WORMHOLE_OK=0
+        for i in $(seq 1 10); do
+            run_on "$NODE2" "nc -z $NODE1_IP 8080 2>/dev/null" && { WORMHOLE_OK=1; break; }
+            sleep 2
+        done
+        if [ "$WORMHOLE_OK" -eq 1 ]; then
+            pass "test2: wormhole still serves on $NODE1 IP ($NODE1_IP:8080)"
+        else
             fail "test2: wormhole broken — $NODE1_IP:8080 not reachable after migration"
+        fi
     else
         echo "  Skipping wormhole nc check — migration did not succeed (result would be a false positive)"
     fi
@@ -410,7 +433,7 @@ if [[ "$STRESS_PID" =~ ^[0-9]+$ ]]; then
             break
         fi
 
-        do_migrate "migtest" "$STRESS_PID" "$NODE1" "$NODE1" "home"
+        do_migrate "migtest" "$STRESS_PID" "$NODE1" "$NODE1" "home" "$NODE2"
         sleep 6
         if run_on "$NODE1" "ps aux" | grep -q "[m]igtest"; then
             show_location "migtest" "$NODE1"
@@ -513,7 +536,7 @@ if is_actually_running "dd_migtest.py" "$NODE2"; then
         # automatically (mattx_trigger_recall -> mattx_capture_and_return_state)
         # -- a dedicated code path, distinct from the general forward-migrate
         # admin_write branch where mattx#8's NULL-deref/deadlock live.
-        do_migrate "dd_migtest" "$DD_PID" "$NODE1" "$NODE1" "home"
+        do_migrate "dd_migtest" "$DD_PID" "$NODE1" "$NODE1" "home" "$NODE2"
         sleep 8
 
         echo ""

@@ -299,6 +299,45 @@ provisions or touches it.
 
 ---
 
+## A `ps` column gotcha worth calling out
+
+Several test scripts print a per-thread snapshot (`show_threads()`) using
+`ps -eLo pid,tid,ppid,user,stat,%cpu,wchan:24,cmd`. That last column has to
+be `cmd`, never `comm` — the two look interchangeable at a glance (both are
+valid `ps` format keywords, both are about "the command"), but they're not
+the same thing, and the difference is easy to miss even on a careful read.
+Real example, captured live from an actual `gmx mdrun` process (PID 91116):
+
+```
+$ ps -eo pid,comm --no-headers | grep gmx
+  91116 gmx
+
+$ ps -eo pid,cmd --no-headers | grep gmx
+  91116 gmx mdrun -s ion_channel.tpr -nsteps 2000 -ntmpi 1 -ntomp 2 -g /tmp/demo.log
+```
+
+`comm` is *only* the executable's own name (`/proc/<pid>/comm`, capped at 15
+characters) — never any arguments, no matter how long the field width you
+give `ps` is. `cmd` is the full command line, arguments included.
+
+This actually shipped broken for a while: `show_threads()` used `comm`, and
+every call site passes a multi-word pattern like `"gmx mdrun"` or
+`"pytorch_migtest"` (matched against a script name, not an executable name)
+— `mdrun` is an *argument* to the `gmx` binary, not part of its name, so the
+`comm` column could never contain it. The check silently printed "no
+threads matching" on every single call, whether or not the threads were
+actually there, for as long as the code existed — a false negative that
+looked exactly like a clean result unless you already knew what a positive
+result was supposed to look like. Two people independently reading the
+literal `ps` invocation didn't catch it either; it only surfaced by asking
+"why does this specific column say `comm` when everything around it treats
+this as a full-command match?" Worth remembering next time a `ps` check in
+this suite looks like it's not finding something that's clearly there —
+check the column list before assuming the process/thread itself is the
+problem.
+
+---
+
 ## Failure Reference and Manual Reproduction
 
 Set up a shell alias first:

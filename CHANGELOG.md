@@ -72,6 +72,32 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   runs. Fixed by splitting the two affected commands (`run-tests.sh`'s
   `dd_migtest` cleanup, `test-eessi-gromacs.sh`) into separate `ssh`
   calls — confirmed no other script has the same combination.
+- **`do_migrate()`'s log output was actively misleading for the "recall
+  home" case**, across every script that has one (`run-tests.sh` and all 9
+  EESSI workload scripts): it printed `from: <home_node> ... to: <home_node>`
+  for a migration that was actually returning the job from wherever it
+  currently lived (e.g. `almanode2`) back to the home node — because the
+  admin command genuinely has to be issued *on* the home node (that's a
+  real MattX requirement, not a display choice), and the helper reused
+  that same node for the "from" label too. Fixed by adding an optional
+  6th `actual_from` parameter that carries the *real* current location for
+  display, while the admin command still runs on the home node as
+  required; also now prints the literal `migrate <pid> <target>` command
+  being sent, not just a paraphrase of it.
+- **`show_threads()`'s `ps` format used `comm` instead of `cmd`**
+  (`test-eessi-gromacs.sh`, `test-eessi-tensorflow.sh`,
+  `test-eessi-espresso.sh`, `test-eessi-pytorch.sh`) — see the "`ps`
+  column gotcha" note in the README. Every one of these thread-level
+  snapshots was silently reporting "no threads matching" regardless of
+  whether the process was actually there, for as long as this code has
+  existed.
+- **`run-tests.sh` Test 2's wormhole reachability check raced the
+  migration it was checking** — it waited for the process to *appear* on
+  the destination node, then checked TCP reachability immediately, but a
+  socket-holding process needs several extra syscall-replay round trips
+  (`bind`/`listen`/etc.) through the wormhole *after* it's already visible
+  in `ps`. Fixed by polling the reachability check (up to 20s) instead of
+  testing it once.
 
 ### Removed
 - `scripts/run-tests-ng.sh` — confirmed unreferenced by any Makefile

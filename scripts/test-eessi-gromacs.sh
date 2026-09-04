@@ -84,10 +84,21 @@ show_both_nodes() {
 # mattx_freeze_task_safely() (mattx_migr.c) while sibling threads keep
 # running and burning CPU. This is the evidence that distinguishes "the
 # Deputy is truly frozen" from "the process looks idle in aggregate."
+# IMPORTANT: the ps format string below ends in `cmd` (full command line,
+# e.g. "gmx mdrun -s ion_channel.tpr ..."), NOT `comm` (bare executable
+# name only, e.g. "gmx" -- no arguments, ever). This bit us for real: with
+# `comm`, a multi-word $pattern like "gmx mdrun" can never match anything,
+# since "mdrun" is an argument, not part of the executable name -- the
+# check silently and permanently reported "no threads matching" regardless
+# of whether the process was actually there. Confirmed live on a real gmx
+# process (PID 91116): `ps -eo comm` printed just "gmx"; `ps -eo cmd`
+# printed the full "gmx mdrun -s ion_channel.tpr -nsteps 2000 ...". If
+# you're tempted to "simplify" this back to `comm` because it's shorter,
+# don't -- see the two ps calls above for what that actually does.
 show_threads() {
     local pattern="$1" node="$2"
     local ip; ip="$(node_ip "$node")"
-    local cmd="ps -eLo pid,tid,ppid,user,stat,%cpu,wchan:24,comm --no-headers | grep -iE -- '$pattern' | grep -v grep"
+    local cmd="ps -eLo pid,tid,ppid,user,stat,%cpu,wchan:24,cmd --no-headers | grep -iE -- '$pattern' | grep -v grep"
     echo "  mattx@${node} (${ip})\$ $cmd"
     local out
     out="$(run_on "$node" "$cmd" 2>/dev/null || true)"
@@ -135,13 +146,23 @@ is_actually_running() {
 }
 
 # Announce and execute a migration.
+# $6 (actual_from) is optional and only needed for the "home" recall path,
+# where the admin command must be issued on the home node ($from) but the
+# job is actually currently running somewhere else -- without it, the log
+# misleadingly shows "from: home_node to: home_node" for a migration that's
+# really coming from wherever the job currently lives. Defaults to $from
+# (the ordinary forward-migration case, where they're the same node).
 do_migrate() {
-    local name="$1" pid="$2" from="$3" to="$4" to_id="$5"
+    local name="$1" pid="$2" from="$3" to="$4" to_id="$5" actual_from="${6:-$3}"
     echo ""
     echo "  ─────────────────────────────────────────────────────"
     echo "  Starting migration of $name [PID $pid]"
-    echo "    from : $from ($(node_ip "$from"))"
+    echo "    from : $actual_from ($(node_ip "$actual_from"))"
     echo "    to   : $to   ($(node_ip "$to"))  [node ID $to_id]"
+    if [ "$from" != "$actual_from" ]; then
+        echo "    (admin command issued on $from, the home node -- not on $actual_from, where the job actually is)"
+    fi
+    echo "    command: echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin   (run on $from)"
     echo "  ─────────────────────────────────────────────────────"
     run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
 }
@@ -303,7 +324,7 @@ else
                 # Deputy/registry entry on the destination and reliably GPFs
                 # the process right after wake (this was previously
                 # misdiagnosed as several distinct return-leg bugs).
-                do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE1" "home"
+                do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE1" "home" "$NODE2"
                 sleep 8
 
                 show_both_nodes "immediately after return migration ($NODE2 -> $NODE1)" "gmx mdrun"

@@ -101,13 +101,23 @@ is_actually_running() {
     [ -n "$stat" ] && [[ "$stat" != T* && "$stat" != Z* ]]
 }
 
+# $6 (actual_from) is optional and only needed for the "home" recall path,
+# where the admin command must be issued on the home node ($from) but the
+# job is actually currently running somewhere else -- without it, the log
+# misleadingly shows "from: home_node to: home_node" for a migration that's
+# really coming from wherever the job currently lives. Defaults to $from
+# (the ordinary forward-migration case, where they're the same node).
 do_migrate() {
-    local name="$1" pid="$2" from="$3" to="$4" to_id="$5"
+    local name="$1" pid="$2" from="$3" to="$4" to_id="$5" actual_from="${6:-$3}"
     echo ""
     echo "  ─────────────────────────────────────────────────────"
     echo "  Starting migration of $name [PID $pid]"
-    echo "    from : $from ($(node_ip "$from"))"
+    echo "    from : $actual_from ($(node_ip "$actual_from"))"
     echo "    to   : $to   ($(node_ip "$to"))  [node ID $to_id]"
+    if [ "$from" != "$actual_from" ]; then
+        echo "    (admin command issued on $from, the home node -- not on $actual_from, where the job actually is)"
+    fi
+    echo "    command: echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin   (run on $from)"
     echo "  ─────────────────────────────────────────────────────"
     run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
 }
@@ -268,7 +278,7 @@ else
                 # NODE2. This is the specific thing a 2-node cluster can't
                 # test: whether the recall path resolves the true origin
                 # correctly rather than the last-hop node.
-                do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE1" "home"
+                do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE1" "home" "$NODE3"
                 sleep 8
                 show_all_nodes "immediately after leg 3 (recall $NODE3 -> $NODE1)" "gmx mdrun"
                 show_migration_dmesg "leg 3 (recall $NODE3 -> $NODE1)" "$NODE1"
