@@ -164,9 +164,9 @@ do_migrate() {
     if [ "$from" != "$actual_from" ]; then
         echo "    (admin command issued on $from, the home node -- not on $actual_from, where the job actually is)"
     fi
-    echo "    command: echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin   (run on $from)"
+    echo "    tool : $(mattx_tool_label)   (run on $from)"
     echo "  ─────────────────────────────────────────────────────"
-    run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
+    mattx_migrate "$from" "$pid" "$to_id"
 }
 
 # Runs on any script exit (normal completion, an early `exit 1`, or an

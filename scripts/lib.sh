@@ -75,6 +75,55 @@ wait_for_ssh_down() {
     echo "[wait] $node is offline"
 }
 
+# Migration entry point used by every EESSI/GROMACS/chain test. Two
+# interchangeable tools exist for the exact same underlying kernel
+# operation, selected via MATTX_TOOL (default: raw, preserving this suite's
+# original behavior):
+#   - raw:         echo 'migrate <pid> <target>' | sudo tee /proc/mattx/admin
+#                  (what every script here used exclusively until this was
+#                  added -- no safety checks of its own, just a straight
+#                  write into the kernel's admin interface)
+#   - mattx-admin: the upstream CLI (bin/mattx-admin in the main mattx
+#                  repo, already deployed to every test node at
+#                  /usr/local/bin/mattx-admin by deploy-mattx.sh). It adds
+#                  checks raw does not have -- notably, it refuses a direct
+#                  remote-to-remote hop ("already migrated to node X,
+#                  please migrate it 'home' first") instead of silently
+#                  attempting it. See the chain-migration "Known bug" note
+#                  in README.md for why that refusal matters: raw lets the
+#                  unsupported hop through, and it corrupts state instead
+#                  of failing cleanly.
+# $target is a numeric node id, "home", or "best" -- both tools accept the
+# same vocabulary. Returns mattx-admin's exit code (0 on success, non-zero
+# if it refused); raw's write always "succeeds" from the shell's point of
+# view even when the underlying migration can't actually work.
+mattx_migrate() {
+    local node="$1" pid="$2" target="$3"
+    case "${MATTX_TOOL:-raw}" in
+        raw)
+            run_on "$node" "echo 'migrate ${pid} ${target}' | sudo tee /proc/mattx/admin > /dev/null"
+            ;;
+        mattx-admin)
+            # Full path: sudo's secure_path doesn't include /usr/local/bin.
+            run_on "$node" "sudo /usr/local/bin/mattx-admin migrate ${pid} ${target}"
+            ;;
+        *)
+            echo "ERROR: unknown MATTX_TOOL '${MATTX_TOOL}' (want 'raw' or 'mattx-admin')" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Human-readable label for whichever tool mattx_migrate() is currently
+# using, for status lines ("command: ... (via $MATTX_TOOL_LABEL)").
+mattx_tool_label() {
+    case "${MATTX_TOOL:-raw}" in
+        raw)         echo "raw /proc/mattx/admin" ;;
+        mattx-admin) echo "mattx-admin CLI" ;;
+        *)           echo "${MATTX_TOOL:-raw}" ;;
+    esac
+}
+
 init_cluster() {
     local distro="$1"
     case "$distro" in

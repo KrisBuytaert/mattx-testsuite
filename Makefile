@@ -15,7 +15,8 @@ KEYS_DIR := keys
         test-eessi-alma test-eessi-deb test-eessi-ubu \
         test-eessi-espresso-alma test-eessi-espresso-deb test-eessi-espresso-ubu \
         test-eessi-gromacs-alma test-eessi-gromacs-deb test-eessi-gromacs-ubu \
-        test-eessi-gromacs-chain-alma \
+        test-eessi-gromacs-chain-alma test-eessi-gromacs-chain-alma-mattx-admin \
+        test-eessi-gromacs-relay-alma test-eessi-gromacs-relay-alma-mattx-admin \
         test-eessi-quantumespresso-alma test-eessi-quantumespresso-deb test-eessi-quantumespresso-ubu \
         test-eessi-openfoam-alma test-eessi-openfoam-deb test-eessi-openfoam-ubu \
         test-eessi-pytorch-alma test-eessi-pytorch-deb test-eessi-pytorch-ubu \
@@ -374,6 +375,27 @@ test-eessi-gromacs-ubu: $(STAMP)/ubu-eessi
 
 test-eessi-gromacs-chain-alma: ensure-alma-running3 $(STAMP)/alma-eessi3
 	$(SCRIPTS)/test-eessi-gromacs-chain.sh alma
+
+# Same chain test, but issuing every migration through the upstream
+# mattx-admin CLI instead of a raw `echo > /proc/mattx/admin` write. See
+# CHANGELOG.md "Known Issues" -- confirmed live that mattx-admin does NOT
+# refuse Leg 2 (the unsupported node2 -> node3 direct hop) either; its
+# "already migrated" guard has a blind spot for this case, so both tools
+# corrupt state here today. Every MATTX_TOOL-aware script in this suite
+# accepts this same env var.
+test-eessi-gromacs-chain-alma-mattx-admin: ensure-alma-running3 $(STAMP)/alma-eessi3
+	MATTX_TOOL=mattx-admin $(SCRIPTS)/test-eessi-gromacs-chain.sh alma
+
+# The OTHER way to move a job across three nodes: never hop remote-to-remote
+# directly -- always recall home first, then migrate again from home. Every
+# individual hop here is home<->remote (the same shape test-eessi-gromacs.sh
+# already validates), so this is expected to actually work, unlike the
+# direct chain above. Confirmed live: it does -- see CHANGELOG.md.
+test-eessi-gromacs-relay-alma: ensure-alma-running3 $(STAMP)/alma-eessi3
+	$(SCRIPTS)/test-eessi-gromacs-relay.sh alma
+
+test-eessi-gromacs-relay-alma-mattx-admin: ensure-alma-running3 $(STAMP)/alma-eessi3
+	MATTX_TOOL=mattx-admin $(SCRIPTS)/test-eessi-gromacs-relay.sh alma
 
 test-eessi-quantumespresso-alma: $(STAMP)/alma-eessi
 	$(SCRIPTS)/test-eessi-quantumespresso.sh alma

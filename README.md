@@ -297,6 +297,10 @@ structurally cannot exercise.
 `test-eessi-alma`, etc.) — the ordinary 2-node AlmaLinux workflow never
 provisions or touches it.
 
+See `CHANGELOG.md` for a known bug in this chain (a silent stale-state
+resurrection on recall) found while investigating remote-to-remote
+migration support.
+
 ---
 
 ## A `ps` column gotcha worth calling out

@@ -107,6 +107,10 @@ is_actually_running() {
 # misleadingly shows "from: home_node to: home_node" for a migration that's
 # really coming from wherever the job currently lives. Defaults to $from
 # (the ordinary forward-migration case, where they're the same node).
+# Returns mattx_migrate()'s exit code instead of tripping `set -e` -- the
+# mattx-admin tool is *expected* to refuse Leg 2 (see the README "Known
+# bug" note), and the caller needs to see that refusal, not have the whole
+# script die on it.
 do_migrate() {
     local name="$1" pid="$2" from="$3" to="$4" to_id="$5" actual_from="${6:-$3}"
     echo ""
@@ -117,9 +121,11 @@ do_migrate() {
     if [ "$from" != "$actual_from" ]; then
         echo "    (admin command issued on $from, the home node -- not on $actual_from, where the job actually is)"
     fi
-    echo "    command: echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin   (run on $from)"
+    echo "    tool : $(mattx_tool_label)   (run on $from)"
     echo "  ─────────────────────────────────────────────────────"
-    run_on "$from" "echo 'migrate ${pid} ${to_id}' | sudo tee /proc/mattx/admin > /dev/null"
+    local rc=0
+    mattx_migrate "$from" "$pid" "$to_id" || rc=$?
+    return "$rc"
 }
 
 # Runs on any script exit (normal completion, an early `exit 1` from a
@@ -227,8 +233,12 @@ pass "gromacs-chain-1: gmx mdrun running on $NODE1 before chain migration"
 # pass/fail.
 SIZE0=$(run_on "$NODE1" "stat -c%s $GROMACS_WORKDIR/ener.edr 2>/dev/null || echo 0")
 
+echo "  Migration tool for this run: $(mattx_tool_label)"
+
 # ---- Leg 1: NODE1 -> NODE2 ----
-do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE2" "$NODE2_ID"
+LEG1_RC=0
+do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE2" "$NODE2_ID" || LEG1_RC=$?
+[ "$LEG1_RC" -eq 0 ] || fail "gromacs-chain-2: admin command for $NODE1 -> $NODE2 failed (exit $LEG1_RC)"
 sleep 8
 show_all_nodes "immediately after leg 1 ($NODE1 -> $NODE2)" "gmx mdrun"
 show_migration_dmesg "leg 1 ($NODE1 -> $NODE2)" "$NODE1"
@@ -250,14 +260,44 @@ else
         # NODE1) is what the generic "migrate <pid> <node>" admin command
         # needs here -- this leg is issued from wherever the job currently
         # lives (NODE2), same as any other forward migration.
+        #
+        # This is exactly the unsupported remote-to-remote hop documented in
+        # CHANGELOG.md ("Known Issues"). It was originally assumed that
+        # MATTX_TOOL=mattx-admin would REFUSE this (mattx-admin's own
+        # "already migrated, please migrate home first" guard), stopping
+        # the chain here safely -- but that guard checks /proc/mattx/remote
+        # (export_registry: what THIS node originally exported), not
+        # /proc/mattx/guests (guest_registry: what THIS node is currently
+        # hosting as someone else's Surrogate), so it does not see that
+        # local PID as anyone's guest and lets the hop through unchallenged
+        # -- confirmed live, not assumed. Both tools corrupt state here
+        # today; the branch below still checks for a future fix.
         SURROGATE_PID_N2=$(run_on "$NODE2" "ps -eo pid,cmd --no-headers | grep -iE -- 'gmx mdrun' | grep -v grep | awk '{print \$1}' | head -1")
-        do_migrate "gmx mdrun" "$SURROGATE_PID_N2" "$NODE2" "$NODE3" "$NODE3_ID"
+        LEG2_RC=0
+        do_migrate "gmx mdrun" "$SURROGATE_PID_N2" "$NODE2" "$NODE3" "$NODE3_ID" || LEG2_RC=$?
         sleep 8
         show_all_nodes "immediately after leg 2 ($NODE2 -> $NODE3)" "gmx mdrun"
         show_migration_dmesg "leg 2 ($NODE2 -> $NODE3)" "$NODE2"
         show_migration_dmesg "leg 2 ($NODE2 -> $NODE3)" "$NODE3"
 
-        if ! is_actually_running "gmx mdrun" "$NODE3"; then
+        if [ "${MATTX_TOOL:-raw}" == "mattx-admin" ]; then
+            if [ "$LEG2_RC" -ne 0 ]; then
+                pass "gromacs-chain-3: mattx-admin correctly refused the unsupported $NODE2 -> $NODE3 direct hop (exit $LEG2_RC) -- see CHANGELOG.md Known Issues"
+                echo "  ► Chain cannot continue past leg 2 under mattx-admin (by design). Recalling the job home from $NODE2 to leave a clean cluster state..."
+                RECALL_RC=0
+                do_migrate "gmx mdrun" "$SURROGATE_PID_N2" "$NODE2" "$NODE2" "home" "$NODE2" || RECALL_RC=$?
+                sleep 8
+                if [ "$RECALL_RC" -ne 0 ] || ! is_actually_running "gmx mdrun" "$NODE1"; then
+                    fail "gromacs-chain-4: cleanup recall of PID $SURROGATE_PID_N2 from $NODE2 back to $NODE1 failed after the expected leg-2 refusal"
+                else
+                    pass "gromacs-chain-4: cleanly recalled home to $NODE1 after the expected leg-2 refusal (no chain attempted, by design)"
+                fi
+            else
+                fail "gromacs-chain-3: mattx-admin unexpectedly ALLOWED the $NODE2 -> $NODE3 direct hop -- if chain support was added upstream, update this test and the CHANGELOG Known Issues entry"
+            fi
+        elif [ "$LEG2_RC" -ne 0 ]; then
+            fail "gromacs-chain-3: raw admin write for $NODE2 -> $NODE3 unexpectedly failed (exit $LEG2_RC)"
+        elif ! is_actually_running "gmx mdrun" "$NODE3"; then
             fail "gromacs-chain-3: gmx mdrun not actually running on $NODE3 after leg 2 ($NODE2 -> $NODE3)"
             echo "  dmesg tail on $NODE2:"; run_on "$NODE2" "sudo dmesg | tail -20" | sed 's/^/    /' || true
         else
@@ -278,13 +318,16 @@ else
                 # NODE2. This is the specific thing a 2-node cluster can't
                 # test: whether the recall path resolves the true origin
                 # correctly rather than the last-hop node.
-                do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE1" "home" "$NODE3"
+                LEG3_RC=0
+                do_migrate "gmx mdrun" "$GMX_PID" "$NODE1" "$NODE1" "home" "$NODE3" || LEG3_RC=$?
                 sleep 8
                 show_all_nodes "immediately after leg 3 (recall $NODE3 -> $NODE1)" "gmx mdrun"
                 show_migration_dmesg "leg 3 (recall $NODE3 -> $NODE1)" "$NODE1"
                 show_migration_dmesg "leg 3 (recall $NODE3 -> $NODE1)" "$NODE3"
 
-                if ! is_actually_running "gmx mdrun" "$NODE1"; then
+                if [ "$LEG3_RC" -ne 0 ]; then
+                    fail "gromacs-chain-4: recall admin command for $NODE3 -> $NODE1 failed (exit $LEG3_RC)"
+                elif ! is_actually_running "gmx mdrun" "$NODE1"; then
                     fail "gromacs-chain-4: gmx mdrun not actually running on $NODE1 after recall from $NODE3"
                     echo "  dmesg tail on $NODE3:"; run_on "$NODE3" "sudo dmesg | tail -20" | sed 's/^/    /' || true
                 else
