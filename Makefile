@@ -23,6 +23,8 @@ KEYS_DIR := keys
         test-eessi-tensorflow-alma test-eessi-tensorflow-deb test-eessi-tensorflow-ubu \
         test-eessi-bioconductor-alma test-eessi-bioconductor-deb test-eessi-bioconductor-ubu \
         test-eessi-nextflow-alma test-eessi-nextflow-deb test-eessi-nextflow-ubu \
+        test-eessi-osu-shm-alma test-eessi-osu-shm-deb test-eessi-osu-shm-ubu \
+        test-dsm-alma test-dsm-deb test-dsm-ubu \
         start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
         status \
@@ -318,6 +320,15 @@ ensure-deb-running:
 test-alma: ensure-alma-running
 	$(SCRIPTS)/run-tests.sh alma
 
+test-dsm-alma: ensure-alma-running
+	$(SCRIPTS)/test-dsm.sh alma
+
+test-dsm-deb: ensure-deb-running
+	$(SCRIPTS)/test-dsm.sh deb
+
+test-dsm-ubu: start-ubu
+	$(SCRIPTS)/test-dsm.sh ubu
+
 test-deb: ensure-deb-running
 	$(SCRIPTS)/run-tests.sh deb
 
@@ -450,6 +461,15 @@ test-eessi-nextflow-deb: $(STAMP)/deb-eessi
 
 test-eessi-nextflow-ubu: $(STAMP)/ubu-eessi
 	$(SCRIPTS)/test-eessi-nextflow.sh ubu
+
+test-eessi-osu-shm-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-osu-shm.sh alma
+
+test-eessi-osu-shm-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-osu-shm.sh deb
+
+test-eessi-osu-shm-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-osu-shm.sh ubu
 
 test-eessi-alma: $(STAMP)/alma-eessi
 	$(SCRIPTS)/test-eessi.sh alma

@@ -171,10 +171,27 @@ dmesg_cursor() {
 
 # True (exit 0) if no Oops/BUG line in dmesg on $node has a timestamp newer
 # than $cursor (a value previously captured via dmesg_cursor on that node).
+#
+# The timestamp extraction below MUST use a regex match on the whole line,
+# not `$1` after default awk field-splitting. dmesg right-pads the number
+# inside the brackets for column alignment -- e.g. "[  921.895536]" -- and
+# whitespace is itself a field separator, so `$1` silently ends up being
+# just "[" for any uptime under ~10000s (i.e. under ~2.7 hours, which is
+# every single test run against a freshly booted/rebooted node). That
+# collapses `ts` to 0 after stripping brackets, and `0 > cursor` is false
+# for any positive cursor -- so this check always reported "no new oops"
+# regardless of whether one actually occurred. Confirmed live: a real,
+# freshly-logged line ("Network send failed! (ret: -32)") at uptime 921s
+# was silently dropped by the old `$1`-based version. Match the bracketed
+# span directly instead so column padding can't break the comparison.
 no_new_oops() {
     local node="$1" cursor="$2"
     ! run_on "$node" "sudo dmesg" 2>/dev/null | awk -v c="$cursor" '
-        { ts = $1; gsub(/[][]/, "", ts); if ((ts + 0) > (c + 0)) print }
+        match($0, /^\[[ 0-9.]+\]/) {
+            ts = substr($0, RSTART + 1, RLENGTH - 2)
+            gsub(/ /, "", ts)
+            if ((ts + 0) > (c + 0)) print
+        }
     ' | grep -q "Oops\|BUG: unable to handle\|kernel BUG"
 }
 

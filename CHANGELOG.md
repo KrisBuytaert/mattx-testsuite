@@ -76,6 +76,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   every script in this suite exercise both entry points and confirm where
   they agree and where they don't.
 
+- **`test-dsm.sh` (new, SysV shared-memory migration test for
+  `bin/dsmtest.c` on 1.9-dev) is expected to fail on the current build.**
+  Filed upstream as `brainmatt/mattx#15` and `brainmatt/mattx#16` after
+  investigation; being tracked there rather than re-diagnosed here.
+  Committed anyway so the repro stays versioned and runnable.
+
+- **`test-eessi-bioconductor.sh`, `test-eessi-nextflow.sh`,
+  `test-eessi-openfoam.sh`, `test-eessi-osu-shm.sh`, `test-eessi-pytorch.sh`,
+  `test-eessi-quantumespresso.sh`, and `test-eessi-tensorflow.sh` are not
+  yet confirmed passing.** As of today, only the basic migration suite
+  (`run-tests.sh`) and the GROMACS EESSI suite (`test-eessi-gromacs.sh`,
+  including its chain/relay variants) are confirmed working end to end.
+  These scripts are committed anyway, each carries a `STATUS:` comment
+  near its top saying the same, and a `[FAIL]` from any of them should be
+  read as "not yet verified" rather than assumed to be a new regression —
+  none has been individually root-caused the way the chain-migration bug
+  above has. All seven were already wired into `test-eessi.sh`'s aggregate
+  `SUITES` list before being committed here — `test-eessi-osu-shm.sh` has
+  since been pulled back out at the maintainer's request (its `STATUS:`
+  banner still applies, it's just not part of the aggregate run for now),
+  but the other six remain, so a `make test-eessi-<distro>` run's
+  aggregate exit code will currently report failure regardless of OSU-SHM.
+
 ### Added
 - **`scripts/test-eessi-gromacs-relay.sh`** (`make test-eessi-gromacs-relay-alma`,
   `make test-eessi-gromacs-relay-alma-mattx-admin`) — the OTHER way to move
