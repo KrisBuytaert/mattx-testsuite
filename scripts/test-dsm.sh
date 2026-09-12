@@ -100,13 +100,15 @@ do_migrate() {
 }
 
 # Extract the sequence of loop numbers from a dsmtest log:
-# "[PID N] Loop K - Read from SHM: 'MattX DSM Magic! Loop K'" -> prints K,
-# but ONLY when both K's (the loop counter and the one embedded in the
-# string) agree -- a mismatch means the read-back data doesn't match what
-# this iteration just wrote, i.e. the shared-memory contents are corrupt.
+# "[PID N] Loop K - Read from SHM: 'K MattX DSM Magic! Loop K'" -> prints K,
+# but ONLY when all three K's (the loop counter and the two embedded in the
+# string, prefix and suffix -- see upstream commit 28e11ef which prefixed the
+# loop number onto the SHM payload) agree -- a mismatch means the read-back
+# data doesn't match what this iteration just wrote, i.e. the shared-memory
+# contents are corrupt.
 loop_sequence() {
     local log="$1"
-    run_on "$NODE1" "grep -oP \"Loop \\K([0-9]+)(?= - Read from SHM: 'MattX DSM Magic! Loop \\1')\" '$log' 2>/dev/null" || true
+    run_on "$NODE1" "grep -oP \"Loop \\K([0-9]+)(?= - Read from SHM: '\\1 MattX DSM Magic! Loop \\1')\" '$log' 2>/dev/null" || true
 }
 
 # True if a numeric sequence (one number per line, via stdin) is strictly

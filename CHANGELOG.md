@@ -5,7 +5,32 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **`scripts/test-dsm.sh`'s `loop_sequence()` had a stale regex that no
+  longer matched `dsmtest`'s log output**, causing both dsmtest cases to
+  report a false `FAIL: ... (got 0 entries)` on the 1.9-dev cluster after
+  upgrading to commit `cb64731`. Upstream commit `28e11ef` ("make it visible
+  that the data in SHM changes") changed `dsmtest.c` to prefix the loop
+  number onto the SHM payload itself (`"%d MattX DSM Magic! Loop %d"`
+  instead of the old fixed string), so the old
+  `Loop \K([0-9]+)(?= - Read from SHM: 'MattX DSM Magic! Loop \1')` pattern
+  no longer matched any line. Updated to
+  `Loop \K([0-9]+)(?= - Read from SHM: '\1 MattX DSM Magic! Loop \1')`.
+  After the fix, `make test-dsm-alma` passes clean: 6/6, including "all 100
+  loops continuous and self-consistent across migration" — i.e. **DSM/SysV
+  shared-memory migration (mattx#15's underlying scenario) now works
+  end-to-end** on 1.9-dev @ `cb64731`, a major change from the total
+  receiver-side silence previously reported in mattx#15.
+
 ### Known Issues
+- **mattx#16 (kernel crash/reboot on `systemctl restart mattx` /
+  `rmmod mattx`) reproduced again on both almanode1 and almanode2, on the
+  latest 1.9-dev commit (`cb64731`)** — hit during the routine
+  `make upgrade-alma` restart step (not a special repro attempt). Both nodes
+  came back up cleanly on reboot (systemd auto-loads the new module), so it
+  cost nothing but a delay, but it means every upgrade/restart cycle on
+  1.9-dev still reliably crashes the node. Not yet re-investigated at the
+  source level — reporting for the maintainer, not root-causing ourselves.
 - **`test-eessi-gromacs-chain.sh` "passes" for the wrong reason — it does
   not actually validate a correct recall, and it silently destroys the real
   computation.** The test was written expecting to prove that the recall
