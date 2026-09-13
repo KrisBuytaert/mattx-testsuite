@@ -109,11 +109,23 @@ do_migrate() {
 cleanup() {
     run_on "$NODE1" "pkill -9 -f '[o]su_shm_wrapper' 2>/dev/null || true; pkill -9 -f '[o]su_' 2>/dev/null || true; pkill -9 -f '[m]pirun.*osu_' 2>/dev/null || true" 2>/dev/null || true
     run_on "$NODE2" "pkill -9 -f '[o]su_' 2>/dev/null || true" 2>/dev/null || true
+    # Per upstream (brainmatt, mattx#15): MPI support is off by default and
+    # should be switched back off for any non-MPI test after we're done here.
+    run_on "$NODE1" "echo 'mpi 0' | sudo tee /proc/mattx/admin > /dev/null" 2>/dev/null || true
+    run_on "$NODE2" "echo 'mpi 0' | sudo tee /proc/mattx/admin > /dev/null" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 echo "=== OSU Micro-Benchmarks shared-memory migration tests on ${DISTRO} cluster (EESSI ${EESSI_VERSION}) ==="
 echo ""
+
+# Per upstream (brainmatt, mattx#15 comment 2026-09-12): MPI support is off by
+# default via /proc/mattx/admin, and VMA handling for MPI processes is "very
+# special especially during migration" -- enable it on all nodes before any
+# MPI-shaped test, and cleanup() switches it back off above.
+echo "[mpi] enabling MPI support on $NODE1 and $NODE2 (echo 'mpi 1' > /proc/mattx/admin)..."
+run_on "$NODE1" "echo 'mpi 1' | sudo tee /proc/mattx/admin > /dev/null"
+run_on "$NODE2" "echo 'mpi 1' | sudo tee /proc/mattx/admin > /dev/null"
 
 # ---- Test 1: EESSI mount + module load ----
 echo "=== Test 1: EESSI OSU-Micro-Benchmarks module load ==="

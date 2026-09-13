@@ -24,6 +24,7 @@ KEYS_DIR := keys
         test-eessi-bioconductor-alma test-eessi-bioconductor-deb test-eessi-bioconductor-ubu \
         test-eessi-nextflow-alma test-eessi-nextflow-deb test-eessi-nextflow-ubu \
         test-eessi-osu-shm-alma test-eessi-osu-shm-deb test-eessi-osu-shm-ubu \
+        test-mpi-alma test-mpi-deb test-mpi-ubu \
         test-dsm-alma test-dsm-deb test-dsm-ubu \
         start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
@@ -470,6 +471,15 @@ test-eessi-osu-shm-deb: $(STAMP)/deb-eessi
 
 test-eessi-osu-shm-ubu: $(STAMP)/ubu-eessi
 	$(SCRIPTS)/test-eessi-osu-shm.sh ubu
+
+test-mpi-alma: ensure-alma-running
+	$(SCRIPTS)/test-mpi.sh alma
+
+test-mpi-deb: ensure-deb-running
+	$(SCRIPTS)/test-mpi.sh deb
+
+test-mpi-ubu: start-ubu
+	$(SCRIPTS)/test-mpi.sh ubu
 
 test-eessi-alma: $(STAMP)/alma-eessi
 	$(SCRIPTS)/test-eessi.sh alma

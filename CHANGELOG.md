@@ -5,6 +5,52 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **`scripts/test-mpi.sh` (`make test-mpi-alma`/`-deb`/`-ubu`)**: a new,
+  dedicated MPI migration test, separate from `test-eessi-osu-shm.sh`.
+  Builds and runs upstream's own `bin/mpich/mpitest` debugging pair
+  (`mpitest`/`mpitest-client`, MPI_Comm_spawn master+worker) with real
+  MPICH (not EESSI's Open MPI -- see note below), migrates the live worker
+  mid-count, and requires it to keep advancing at roughly its pre-migration
+  rate afterward (not just "moved once"). Per upstream (brainmatt, mattx#15
+  comment 2026-09-12), also toggles `echo 'mpi 1' > /proc/mattx/admin` on
+  before running and reverts it to `0` in cleanup, since MPI support is off
+  by default.
+  - Had to switch from EESSI's Open MPI 4.1.5 module to a plain `mpich`/
+    `mpich-devel` package install: Open MPI's `MPI_Comm_spawn` hits its own
+    `UNPACK-OPAL-VALUE: UNSUPPORTED TYPE 33 FOR KEY` error in this
+    environment, reproduced with MattX entirely out of the picture (no
+    migration attempted) and independent of `--mca`/`--bind-to` flags tried
+    -- an Open MPI/environment issue, not ours to chase, and it matches
+    upstream's own `run-mpitest` script targeting MPICH specifically
+    (`MPICH_NO_LOCAL` is an MPICH-only knob).
+  - MPICH's Hydra launcher also needed `-launcher fork` plus generous
+    startup polling (20-30s observed) instead of `mpirun`'s default
+    (`--launcher ssh`, even for a same-node spawn): under a detached/no-tty
+    SSH launch it would otherwise stall indefinitely at "Spawning
+    'mpitest-client'...".
+
+### Known Issues
+- **New finding via `test-mpi.sh`: a migrated `MPI_Comm_spawn` worker wakes
+  up, runs exactly ONE more loop iteration, then permanently stalls
+  (`ps` STAT stays `T`) -- reproduced twice, independently.** Both runs on
+  1.9-dev @ `cc5331c` show the same shape: `dmesg` on the receiving node
+  logs a fully clean import ("All memory transferred", "Commencing full
+  brain transplant", "Successfully injected 30 Fake FDs!", "IT'S ALIVE!
+  Waking 3 threads in Gang PID ...") -- no oops, no crash, nothing
+  resembling mattx#15's "total silence" -- yet the counter (which should
+  advance by 1 every second) only ever advances by exactly one more value
+  after migration (6->7 in one run, 3->4 in the other) and then never
+  moves again for the rest of a 60s poll window. Unlike the `osu_latency`
+  repro, there is no live shared-memory transport in play here at all --
+  this is a single MPI_Comm_spawn'd worker with no ongoing MPI traffic
+  during its count loop, so the stall looks specific to something about
+  resuming an MPI-launched (multi-threaded: "3 threads in Gang") process's
+  execution after the "brain transplant", not to shared memory. Not
+  root-caused on our end -- reporting for upstream, who's asked for exactly
+  this kind of MPI finding to be centralized on mattx#15 as the "MPI master
+  bug".
+
 ### Fixed
 - **`scripts/test-dsm.sh`'s `loop_sequence()` had a stale regex that no
   longer matched `dsmtest`'s log output**, causing both dsmtest cases to
@@ -23,6 +69,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   receiver-side silence previously reported in mattx#15.
 
 ### Known Issues
+- **mattx#15's *second* repro (migrating an `osu_latency`/Open MPI rank —
+  high-VMA, `MAP_SHARED` shared-memory transport) is NOT fixed, and now
+  crashes the *sender* outright.** Only the `dsmtest` (SysV shm) repro from
+  that issue was re-verified as fixed (see the "Fixed" entry above) — do not
+  read that as mattx#15 being fully resolved. Retested the `osu_latency`
+  scenario via `make test-eessi-osu-shm-alma` on the same 1.9-dev @ `cb64731`
+  cluster: the instant `migrate <pid> <node2-id>` was issued on almanode1 for
+  a live co-located `osu_latency` rank pair, almanode1's own SSH session
+  reset (`Connection reset by peer`) and it came back up with `uptime`
+  showing a fresh boot. almanode2 was untouched (uptime unaffected) — so this
+  time the *source* node crashes during migration extraction, a different
+  and arguably worse signature than the original "total silence on the
+  receiver" report. No panic backtrace recoverable (same diagnostic gap as
+  mattx#16 — no persistent journal, no kdump). Not root-caused further per
+  house policy on WIP-branch bugs; reported upstream as a follow-up on
+  mattx#15 rather than closing it.
+  **2026-09-13 re-confirmation**: re-ran this exact scenario a second time,
+  now on `cc5331c` and with `mpi 1` properly enabled beforehand (the first
+  repro above had MPI support left off, which upstream later clarified is
+  required for MPI tests) — identical crash, same signature, same instant
+  timing (SSH resets the moment `migrate` is issued). So this is independent
+  of the `mpi` admin toggle, not an artifact of testing with MPI support
+  off.
 - **mattx#16 (kernel crash/reboot on `systemctl restart mattx` /
   `rmmod mattx`) reproduced again on both almanode1 and almanode2, on the
   latest 1.9-dev commit (`cb64731`)** — hit during the routine
