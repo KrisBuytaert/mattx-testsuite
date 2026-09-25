@@ -30,6 +30,11 @@ from html import escape
 TAG_RE = re.compile(r"^\[(PASS|FAIL)\]\s+(.*)$")
 COMMIT_RE = re.compile(r"^mattx commit:\s*(\S+)\s*$")
 KERNEL_RE = re.compile(r"^(\S+)\s+kernel:\s*(\S+)\s*$")
+# Printed by every test script's own final tally line ("Results: N passed, M
+# failed", "DSM Results: ...", "Stale-Link Results: ..."). Its absence means
+# the run was killed/crashed/interrupted before finishing -- distinct from a
+# genuinely clean pass, which must not be reported the same way.
+RESULTS_RE = re.compile(r"Results:\s*\d+\s*passed,\s*\d+\s*failed")
 # label-distro-YYYYMMDD-HHMMSS.txt
 NAME_RE = re.compile(r"^(?P<label>.+)-(?P<distro>alma|deb|ubu)-(?P<ts>\d{8}-\d{6})\.txt$")
 
@@ -38,6 +43,7 @@ def parse_report(path):
     commit = None
     kernels = {}
     assertions = []  # (status, message) in file order
+    completed = False
     with open(path, "r", errors="replace") as f:
         for line in f:
             line = line.rstrip("\n")
@@ -52,6 +58,9 @@ def parse_report(path):
             m = TAG_RE.match(line)
             if m:
                 assertions.append((m.group(1), m.group(2)))
+                continue
+            if RESULTS_RE.search(line):
+                completed = True
     basename = os.path.basename(path)
     m = NAME_RE.match(basename)
     label = m.group("label") if m else basename
@@ -71,6 +80,7 @@ def parse_report(path):
         "commit": commit,
         "kernels": kernels,
         "assertions": assertions,
+        "completed": completed,
     }
 
 
@@ -84,14 +94,19 @@ def kernel_summary(kernels):
     return ", ".join(f"{n}={v}" for n, v in sorted(kernels.items()))
 
 
-def test_summary(assertions):
+def test_summary(assertions, completed):
+    """Returns (kind, header, fails) -- kind is 'pass', 'fail', or 'incomplete',
+    used by the renderers to pick a color independently of the fails list."""
     total = len(assertions)
     fails = [msg for status, msg in assertions if status == "FAIL"]
     passed = total - len(fails)
+    if not completed:
+        prefix = f"{passed} passed, {len(fails)} failed so far" if total else "no checks reached"
+        return "incomplete", f"⚠️ incomplete run (stopped early) — {prefix}", fails
     if not fails:
-        return f"✅ all {total} passed" if total else "(no assertions found)"
-    header = f"❌ {len(fails)} failed, {passed} passed"
-    return header, fails
+        header = f"✅ all {total} passed" if total else "(no assertions found)"
+        return "pass", header, []
+    return "fail", f"❌ {len(fails)} failed, {passed} passed", fails
 
 
 def sort_key(r):
@@ -105,13 +120,8 @@ def render_markdown(reports):
     for r in sorted(reports, key=sort_key):
         kernel = kernel_summary(r["kernels"])
         commit = (r["commit"] or "unknown")[:12]
-        summary = test_summary(r["assertions"])
-        if isinstance(summary, tuple):
-            header, fails = summary
-            fail_list = "; ".join(fails)
-            result = f"{header} — FAIL: {fail_list}"
-        else:
-            result = summary
+        _kind, header, fails = test_summary(r["assertions"], r["completed"])
+        result = f"{header} — FAIL: {'; '.join(fails)}" if fails else header
         out.append(f"| {kernel} | {commit} | {r['label']} ({r['distro']}) | {r['date']} | {result} |")
     return "\n".join(out) + "\n"
 
@@ -124,15 +134,17 @@ def render_html(reports):
         commit = escape((r["commit"] or "unknown")[:12])
         label = escape(f"{r['label']} ({r['distro']})")
         date = escape(r["date"])
-        summary = test_summary(r["assertions"])
-        if isinstance(summary, tuple):
-            header, fails = summary
-            bg = ' style="background:#ffeef0"'
+        kind, header, fails = test_summary(r["assertions"], r["completed"])
+        bg = {
+            "pass": ' style="background:#e6ffed"',
+            "fail": ' style="background:#ffeef0"',
+            "incomplete": ' style="background:#fff8e1"',
+        }[kind]
+        if fails:
             fail_items = "".join(f"<li>{escape(f)}</li>" for f in fails)
             result = f"{escape(header)}<ul>{fail_items}</ul>"
         else:
-            bg = ' style="background:#e6ffed"'
-            result = escape(summary)
+            result = escape(header)
         out.append(
             f"<tr><td>{kernel}</td><td>{commit}</td><td>{label}</td><td>{date}</td>"
             f"<td{bg}>{result}</td></tr>"
