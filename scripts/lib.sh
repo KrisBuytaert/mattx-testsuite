@@ -325,5 +325,13 @@ auto_report_wrap() {
     "$0" "$@" 2>&1 | tee "$report_file" || rc=$?
     echo ""
     echo "Full report: $report_file"
+
+    # Best-effort: keep run-summary.md/html current after every run so it
+    # never needs a separate `make report-table` to catch up. Failure here
+    # must not mask the test run's own pass/fail result.
+    "$SCRIPT_DIR/report-table.py" --format both --out "$reports_dir/run-summary" \
+        && echo "[report] run-summary.md/html updated" \
+        || echo "[report] WARNING: run-summary regeneration failed" >&2
+
     exit "$rc"
 }
