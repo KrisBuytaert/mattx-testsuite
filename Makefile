@@ -26,10 +26,12 @@ KEYS_DIR := keys
         test-eessi-osu-shm-alma test-eessi-osu-shm-deb test-eessi-osu-shm-ubu \
         test-mpi-alma test-mpi-deb test-mpi-ubu \
         test-dsm-alma test-dsm-deb test-dsm-ubu \
+        test-stale-link-alma test-stale-link-deb test-stale-link-ubu \
         start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
         status \
         clean-alma clean-deb clean-ubu clean \
+        report-table \
         keys check setup
 
 all:
@@ -330,6 +332,15 @@ test-dsm-deb: ensure-deb-running
 test-dsm-ubu: start-ubu
 	$(SCRIPTS)/test-dsm.sh ubu
 
+test-stale-link-alma: ensure-alma-running
+	$(SCRIPTS)/test-stale-link.sh alma
+
+test-stale-link-deb: ensure-deb-running
+	$(SCRIPTS)/test-stale-link.sh deb
+
+test-stale-link-ubu: start-ubu
+	$(SCRIPTS)/test-stale-link.sh ubu
+
 test-deb: ensure-deb-running
 	$(SCRIPTS)/run-tests.sh deb
 
@@ -555,6 +566,12 @@ status:
 	@echo ""
 	@echo "=== Network ==="
 	@virsh net-info mattx-test 2>/dev/null | grep -E "Name|Active" || echo "  mattx-test: not found"
+
+# ---- Report table (per-run summary, keyed by kernel + mattx commit) ----
+
+report-table:
+	$(SCRIPTS)/report-table.py --format both --out reports/run-summary
+	@echo "wrote reports/run-summary.md and reports/run-summary.html"
 
 # ---- Destroy (deletes disks — full reprovision needed after this) ----
 

@@ -26,10 +26,18 @@
 #             after migration should fail with EINVAL. A failure here would
 #             mean the data happened to look right by byte-copy luck while
 #             the shared-memory IDENTITY did not actually survive the move.
+# Test 3: migrate the worker BEFORE it makes any SHM syscall at all (during
+#         its fixed 10s startup countdown), so shmget/shmat/shmdt/shmctl --
+#         all 4 of the migSHM wormhole hooks in mattx_hooks.c -- have to
+#         round-trip through the RPC wormhole to the home node as a
+#         Surrogate. Test 2 only actually exercises shmdt/shmctl this way,
+#         since dsmtest calls shmget()/shmat() during its startup countdown,
+#         well before Test 2's migration point -- those two calls run
+#         natively there because the hooks gate on is_guest_process().
 #
-# STATUS: expected to fail on the current 1.9-dev build. Filed upstream as
-# brainmatt/mattx#15 and #16 after investigation; tracked there rather than
-# re-diagnosed here. See CHANGELOG.md.
+# STATUS: as of 1.9-dev @ cb64731, Test 1 and Test 2 pass cleanly (mattx#15's
+# dsmtest/SysV-shm repro is fixed -- see CHANGELOG.md). Test 3 is new and
+# has not been run against a live cluster yet.
 set -euo pipefail
 
 DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
@@ -227,15 +235,110 @@ fi
 run_on "$NODE1" "kill -9 ${MGR:-} 2>/dev/null || true; pkill -9 -f '[d]smtest' 2>/dev/null || true"
 run_on "$NODE2" "pkill -9 -f '[d]smtest' 2>/dev/null || true"
 
-if no_new_oops "$NODE1" "$DMESG_CURSOR_NODE1"; then
-    pass "dsm-2: no kernel oops on $NODE1"
+# ---- Test 3: migrate BEFORE any SHM syscall, to exercise all 4 migSHM
+#      wormhole hooks (shmget/shmat/shmdt/shmctl in mattx_hooks.c) as a
+#      Surrogate, not just shmdt/shmctl ----
+#
+# Test 2 above migrates ~15s in, by which point dsmtest's shmget() and
+# shmat() (called right after its fixed 10s startup countdown) have ALREADY
+# run natively on the home node -- the wormhole hooks are no-ops there
+# because entry_handler_shmget/entry_handler_shmat both gate on
+# is_guest_process(current->tgid), which is only true post-migration. Test 2
+# therefore only ever proves the shmdt/shmctl wormhole paths (called at the
+# very end, after the process is already a Surrogate). Test 3 migrates
+# during the countdown -- before shmget() fires -- so shmget, shmat, shmdt
+# AND shmctl all have to round-trip through the RPC wormhole to the home
+# node as a Surrogate.
+echo ""
+echo "=== Test 3: migrate dsmtest worker BEFORE any SHM syscall (shmget/shmat wormhole) ==="
+run_on "$NODE1" "rm -f /tmp/dsmtest3.log"
+MGR3=$(run_on "$NODE1" "dsmtest &>/tmp/dsmtest3.log & echo \$!")
+sleep 2
+PID3=$(run_on "$NODE1" "pgrep -P $MGR3" || true)
+
+if [[ "$PID3" =~ ^[0-9]+$ ]]; then
+    # `|| true`, not `|| echo 0`: `grep -c` already prints "0" itself on
+    # no match (just with a nonzero exit code, the expected/common case
+    # here) -- an `|| echo 0` fallback fires on that same nonzero exit and
+    # double-prints "0\n0", breaking the numeric -ne check below with
+    # "integer expected". Still need *some* `||` guard though: under this
+    # script's `set -euo pipefail`, a bare failing command substitution
+    # assignment aborts the whole script. ${PRE3:-0} below covers a
+    # genuine run_on/SSH failure (empty output in that case).
+    PRE3=$(run_on "$NODE1" "grep -c 'shmget successful\|shmat successful' /tmp/dsmtest3.log 2>/dev/null" || true)
+    if [ "${PRE3:-0}" -ne 0 ]; then
+        fail "dsm-3: dsmtest already called shmget/shmat before migration was issued -- timing window too tight, test is unsound this run"
+    else
+        echo "  Confirmed: worker still in its startup countdown, no SHM syscalls made yet."
+        do_migrate "dsmtest" "$PID3" "$NODE1" "$NODE2" "$NODE2_ID"
+
+        echo "  Waiting up to 130s for completion on whichever node it lands on..."
+        DONE3=0
+        for i in $(seq 1 65); do
+            run_on "$NODE1" "grep -q 'dsmtest finished cleanly' /tmp/dsmtest3.log 2>/dev/null" && { DONE3=1; break; }
+            sleep 2
+        done
+
+        show_both_nodes "test 3, after wait ended" "dsmtest"
+        show_migration_dmesg "test 3 migration ($NODE1 -> $NODE2)" "$NODE1"
+        show_migration_dmesg "test 3 migration ($NODE1 -> $NODE2)" "$NODE2"
+
+        if [ "$DONE3" -eq 1 ]; then
+            run_on "$NODE1" "grep -q 'shmget successful' /tmp/dsmtest3.log" \
+                && pass "dsm-3: shmget() succeeded post-migration (shmget wormhole hook engaged)" \
+                || fail "dsm-3: no 'shmget successful' line -- shmget() failed or never ran as a Surrogate (known issue: brainmatt/mattx#18)"
+
+            run_on "$NODE1" "grep -q 'shmat successful' /tmp/dsmtest3.log" \
+                && pass "dsm-3: shmat() succeeded post-migration (shmat wormhole hook engaged)" \
+                || fail "dsm-3: no 'shmat successful' line -- shmat() failed or never ran as a Surrogate"
+
+            FULL_SEQ3=$(loop_sequence "/tmp/dsmtest3.log")
+            FULL_COUNT3=$(echo "$FULL_SEQ3" | grep -c . || true)
+            if [ "$FULL_COUNT3" -eq 100 ] && echo "$FULL_SEQ3" | is_continuous; then
+                pass "dsm-3: all 100 loops continuous and self-consistent, entirely as a Surrogate"
+            else
+                fail "dsm-3: loop sequence broken (got $FULL_COUNT3 entries, expected 100 continuous) -- SHM contents did not survive running entirely as a Surrogate"
+            fi
+
+            if run_on "$NODE1" "grep -q 'shmdt failed' /tmp/dsmtest3.log"; then
+                fail "dsm-3: shmdt() failed post-migration (shmdt wormhole hook)"
+            else
+                pass "dsm-3: shmdt() succeeded post-migration (shmdt wormhole hook engaged)"
+            fi
+
+            if run_on "$NODE1" "grep -q 'shmctl IPC_RMID failed' /tmp/dsmtest3.log"; then
+                ERRMSG3=$(run_on "$NODE1" "grep 'shmctl IPC_RMID failed' /tmp/dsmtest3.log")
+                fail "dsm-3: shmctl(IPC_RMID) failed post-migration ($ERRMSG3) -- shmctl wormhole hook did not produce a valid remote shmid"
+            else
+                pass "dsm-3: shmctl(IPC_RMID) succeeded post-migration (shmctl wormhole hook engaged)"
+            fi
+
+            echo "  Full log:"
+            run_on "$NODE1" "cat /tmp/dsmtest3.log" | sed 's/^/    /'
+        else
+            fail "dsm-3: dsmtest did not reach completion within the wait budget after early migration -- suspected hang (matches known issue brainmatt/mattx#18: shmget() through the wormhole fails with EFAULT and the worker never proceeds)"
+            echo "  Log tail:"
+            run_on "$NODE1" "tail -20 /tmp/dsmtest3.log 2>/dev/null" | sed 's/^/    /' || true
+        fi
+    fi
 else
-    fail "dsm-2: kernel oops on $NODE1"
+    fail "dsm-3: dsmtest worker did not start on $NODE1"
+fi
+
+run_on "$NODE1" "kill -9 ${MGR3:-} 2>/dev/null || true; pkill -9 -f '[d]smtest' 2>/dev/null || true"
+run_on "$NODE2" "pkill -9 -f '[d]smtest' 2>/dev/null || true"
+
+# Covers Tests 2 AND 3 -- DMESG_CURSOR_NODE{1,2} were captured once, right
+# before Test 2, and never reset before Test 3.
+if no_new_oops "$NODE1" "$DMESG_CURSOR_NODE1"; then
+    pass "dsm-2/3: no kernel oops on $NODE1"
+else
+    fail "dsm-2/3: kernel oops on $NODE1"
 fi
 if no_new_oops "$NODE2" "$DMESG_CURSOR_NODE2"; then
-    pass "dsm-2: no kernel oops on $NODE2"
+    pass "dsm-2/3: no kernel oops on $NODE2"
 else
-    fail "dsm-2: kernel oops on $NODE2"
+    fail "dsm-2/3: kernel oops on $NODE2"
 fi
 
 echo ""

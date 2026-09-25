@@ -195,9 +195,125 @@ no_new_oops() {
     ' | grep -q "Oops\|BUG: unable to handle\|kernel BUG"
 }
 
+# Printed automatically when a test fails, ahead of that test's own
+# repro_testN() block -- gives a reviewer the env vars needed to replay the
+# repro_testN() commands by hand.
+repro_setup() {
+    cat <<'SETUP'
+
+  To reproduce manually, set these in your shell first:
+    export MATTX_KEY="<path-to-test>/keys/mattx_test"
+    # AlmaLinux: N1=192.168.100.11  N2=192.168.100.12
+    # Debian:    N1=192.168.100.21  N2=192.168.100.22
+    export N1=192.168.100.11
+    export N2=192.168.100.12
+    export SSH="ssh -i $MATTX_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null mattx@"
+    export N2_ID=$($SSH${N2} 'cat /proc/mattx/nodes' | awk '/\(Local\)/{print $1}')
+SETUP
+}
+
+# Print ps evidence for a process pattern on one node. We search by pattern
+# rather than by the home-node PID: mattx-stub is a distinct process spawned
+# locally on the remote node via call_usermodehelper, so it gets its own
+# kernel-assigned PID there — the original home PID has no reason to exist
+# as a process on the remote node at all, so `ps -p <home-pid>` on the
+# Surrogate's node reliably (and misleadingly) finds nothing.
+# The exact remote command is echoed first so the evidence is self-proving:
+# a reviewer can see which host it ran on and what was asked, not just the
+# result.
+show_location() {
+    local pattern="$1" node="$2"
+    local ip; ip="$(node_ip "$node")"
+    local cmd="ps -eo pid,ppid,user,stat,%cpu,etime,cmd --no-headers | grep -iE -- '$pattern' | grep -v grep"
+    echo "  mattx@${node} (${ip})\$ $cmd"
+    local out
+    out="$(run_on "$node" "$cmd" 2>/dev/null || true)"
+    if [ -n "$out" ]; then
+        echo "$out" | sed 's/^/      /'
+    else
+        echo "      (no process matching '$pattern' on $node)"
+    fi
+}
+
+# Announce and execute a migration.
+# $6 (actual_from) is optional and only needed for the "home" recall path,
+# where the admin command must be issued on the home node ($from) but the
+# job is actually currently running somewhere else -- without it, the log
+# misleadingly shows "from: home_node to: home_node" for a migration that's
+# really coming from wherever the job currently lives. Defaults to $from
+# (the ordinary forward-migration case, where they're the same node).
+do_migrate() {
+    local name="$1" pid="$2" from="$3" to="$4" to_id="$5" actual_from="${6:-$3}"
+    echo ""
+    echo "  ─────────────────────────────────────────────────────"
+    echo "  Starting migration of $name [PID $pid]"
+    echo "    from : $actual_from ($(node_ip "$actual_from"))"
+    echo "    to   : $to   ($(node_ip "$to"))  [node ID $to_id]"
+    if [ "$from" != "$actual_from" ]; then
+        echo "    (admin command issued on $from, the home node -- not on $actual_from, where the job actually is)"
+    fi
+    echo "    tool : $(mattx_tool_label)   (run on $from)"
+    echo "  ─────────────────────────────────────────────────────"
+    mattx_migrate "$from" "$pid" "$to_id"
+}
+
+# Wraps no_new_oops() with a fail() call on the caller's own PASS/FAIL
+# counters -- the calling script must define pass()/fail() itself (every
+# script that uses this does). Returns the same boolean as no_new_oops()
+# so `check_no_oops ... && pass "..."` still works.
+check_no_oops() {
+    local node="$1" cursor="$2"
+    if ! no_new_oops "$node" "$cursor"; then
+        fail "kernel oops on $node"
+        return 1
+    fi
+    return 0
+}
+
+# STAT field of the first process matching pattern on this node, or empty
+# if no matching process exists at all. Distinguishes "gone" from "present
+# but frozen" -- ps aux | grep can't, which silently produced false-positive
+# PASSes before this check existed (see mattx#8 for a case that hid behind
+# exactly this gap).
+process_stat() {
+    local pattern="$1" node="$2"
+    run_on "$node" "ps -eo stat,cmd --no-headers | grep -iE -- '$pattern' | grep -v grep | awk '{print \$1}' | head -1" 2>/dev/null
+}
+
+# Is a process matching pattern actually EXECUTING on this node (STAT other
+# than T=stopped or Z=zombie), as opposed to merely PRESENT?
+is_actually_running() {
+    local pattern="$1" node="$2"
+    local stat; stat="$(process_stat "$pattern" "$node")"
+    [ -n "$stat" ] && [[ "$stat" != T* && "$stat" != Z* ]]
+}
+
+# Prints the exact mattx git commit and each node's running kernel at the
+# top of every report, so a report file is self-contained evidence of what
+# it was actually run against -- without this, a report from a session
+# investigating a version-dependent bug (see mattx#16/#17) can't be told
+# apart from one that isn't, after the fact.
+# NODE1/NODE2 (and DISTRO) are already in scope from the calling script by
+# the time auto_report_wrap() runs -- see its case statement.
+print_version_banner() {
+    echo "=============================="
+    echo "mattx commit: $(run_on "$NODE1" "cd ~/mattx && git rev-parse HEAD 2>/dev/null" || echo "unknown")"
+    echo "$NODE1 kernel: $(run_on "$NODE1" "uname -r" 2>/dev/null || echo "unknown")"
+    if [ -n "${NODE2:-}" ]; then
+        echo "$NODE2 kernel: $(run_on "$NODE2" "uname -r" 2>/dev/null || echo "unknown")"
+    fi
+    if [ -n "${NODE3:-}" ]; then
+        echo "$NODE3 kernel: $(run_on "$NODE3" "uname -r" 2>/dev/null || echo "unknown")"
+    fi
+    echo "=============================="
+}
+
 auto_report_wrap() {
     local label="$1"; shift
-    [ -n "${REPORT_ACTIVE:-}" ] && return 0
+    if [ -n "${REPORT_ACTIVE:-}" ]; then
+        print_version_banner
+        return 0
+    fi
 
     local reports_dir="$TEST_DIR/reports"
     mkdir -p "$reports_dir"
