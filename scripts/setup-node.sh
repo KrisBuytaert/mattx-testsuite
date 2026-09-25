@@ -32,6 +32,22 @@ echo "[setup] updating $NODE and rebooting into latest kernel..."
 case "$DISTRO" in
     alma)
         run_on "$NODE" "sudo dnf update -y"
+        # kdump setup piggybacks on this same reboot cycle: kexec-tools
+        # needs installing and crashkernel= needs to land in the boot
+        # params before the reboot below, since reserving crash-kernel
+        # memory only happens at boot time -- doing this as a separate
+        # step later would cost a second reboot for nothing. This is what
+        # actually gets us a real kernel backtrace on a crash/hang,
+        # instead of the serial-console silence we kept hitting
+        # (see CHANGELOG.md) -- console access alone was never going to
+        # be enough; this is the real diagnostic path.
+        # kexec-tools alone is just the low-level kexec/vmcore-dmesg
+        # binaries on AlmaLinux/RHEL 10 -- kdumpctl, kdump.service, and
+        # /etc/kdump.conf come from the separate kdump-utils package
+        # (discovered the hard way: kexec-tools installed fine, but
+        # "kdumpctl: command not found").
+        run_on "$NODE" "sudo dnf install -y kexec-tools kdump-utils makedumpfile"
+        run_on "$NODE" "sudo grubby --update-kernel=ALL --args='crashkernel=192M'"
         ;;
     deb|ubu)
         # -o DPkg::Lock::Timeout makes apt itself wait for the dpkg frontend
@@ -65,6 +81,19 @@ case "$DISTRO" in
                 echo 'ERROR: kernel headers missing for '\"\${KVER}\" >&2; exit 1
             }
             echo '[setup] kernel headers OK: '\"\${KVER}\"
+        "
+        echo "[setup] enabling kdump on $NODE..."
+        run_on "$NODE" "
+            if grep -q crashkernel /proc/cmdline; then
+                sudo systemctl enable --now kdump >/dev/null 2>&1
+                if systemctl is-active --quiet kdump; then
+                    echo '[setup] kdump active -- crash backtraces will land in /var/crash on this node'
+                else
+                    echo '[setup] WARNING: crashkernel= is active but kdump.service did not come up -- check: sudo kdumpctl status' >&2
+                fi
+            else
+                echo '[setup] WARNING: crashkernel= not present in /proc/cmdline after reboot -- kdump will not capture anything. Check available RAM (VM has 2048M; a 192M reservation should fit) and the grubby output above for errors.' >&2
+            fi
         "
         ;;
     deb|ubu)

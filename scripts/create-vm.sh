@@ -8,7 +8,8 @@ export LIBVIRT_DEFAULT_URI=qemu:///system
 DISTRO="${1:?Usage: $0 <alma|deb|ubu> <1|2>}"
 NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-KEYS_DIR="$SCRIPT_DIR/../keys"
+source "$SCRIPT_DIR/lib.sh"   # also sets KEYS_DIR
+NETWORK_HOST_IP="192.168.100.1"   # must match ensure-libvirt-network.sh's HOST_IP
 BASE_CACHE="/var/lib/libvirt/images/mattx-base-sdog"   # survives make clean
 IMAGES_DIR="/var/lib/libvirt/images/mattx-test-sdog"   # per-VM disks, wiped on clean
 
@@ -52,6 +53,7 @@ case "$DISTRO" in
         ;;
 esac
 
+VM_IP="$(node_ip "$VM_NAME")"
 VM_DISK="$IMAGES_DIR/$VM_NAME.qcow2"
 SEED_ISO="$IMAGES_DIR/$VM_NAME-seed.iso"
 PUBKEY="$(cat "$KEYS_DIR/mattx_test.pub")"
@@ -88,6 +90,12 @@ qemu-img create -f qcow2 -b "$BASE_IMAGE" -F qcow2 "$VM_DISK" 10G
 SEED_DIR="$(mktemp -d)"
 trap 'rm -rf "$SEED_DIR"' EXIT
 
+# root gets a console-only password (mattx-console) below, so a VM whose
+# networking never comes up (e.g. a guest-side cloud-init/networking quirk,
+# not a mattx or test-harness bug) can still be diagnosed via
+# "virsh console <vm>" even when SSH is completely unreachable. ssh_pwauth
+# stays false, so this does NOT enable password auth over the network --
+# console access only.
 cat > "$SEED_DIR/user-data" <<EOF
 #cloud-config
 hostname: ${VM_NAME}
@@ -100,6 +108,11 @@ users:
     lock_passwd: true
     ssh_authorized_keys:
       - ${PUBKEY}
+disable_root: false
+chpasswd:
+  list: |
+    root:mattx-console
+  expire: false
 ssh_pwauth: false
 EOF
 
@@ -108,15 +121,38 @@ instance-id: ${VM_NAME}
 local-hostname: ${VM_NAME}
 EOF
 
+# Static IP instead of DHCP: the test harness already hardcodes a fixed IP
+# per node everywhere (node_ip() in lib.sh, the MAC reservations in
+# ensure-libvirt-network.sh) -- DHCP was only ever a roundabout way to
+# arrive at an address we already knew in advance. Also sidesteps a
+# dnsmasq/bridge interaction bug observed on at least one host where
+# DHCPDISCOVER reached the bridge but dnsmasq silently never answered it.
+# match+set-name pins this to whatever interface has this VM's MAC,
+# regardless of what the kernel names it by default.
+cat > "$SEED_DIR/network-config" <<EOF
+network:
+  version: 2
+  ethernets:
+    eth0:
+      match:
+        macaddress: "${MAC}"
+      set-name: eth0
+      addresses: ["${VM_IP}/24"]
+      gateway4: ${NETWORK_HOST_IP}
+      nameservers:
+        addresses: ["${NETWORK_HOST_IP}"]
+EOF
+
 SEED_TMP="$SEED_DIR/seed.iso"
 if command -v cloud-localds &>/dev/null; then
-    cloud-localds "$SEED_TMP" "$SEED_DIR/user-data" "$SEED_DIR/meta-data"
+    cloud-localds --network-config="$SEED_DIR/network-config" \
+        "$SEED_TMP" "$SEED_DIR/user-data" "$SEED_DIR/meta-data"
 elif command -v genisoimage &>/dev/null; then
     genisoimage -quiet -output "$SEED_TMP" -volid cidata \
-        -joliet -rock "$SEED_DIR/user-data" "$SEED_DIR/meta-data"
+        -joliet -rock "$SEED_DIR/user-data" "$SEED_DIR/meta-data" "$SEED_DIR/network-config"
 elif command -v mkisofs &>/dev/null; then
     mkisofs -quiet -output "$SEED_TMP" -volid cidata \
-        -joliet -rock "$SEED_DIR/user-data" "$SEED_DIR/meta-data"
+        -joliet -rock "$SEED_DIR/user-data" "$SEED_DIR/meta-data" "$SEED_DIR/network-config"
 fi
 mv "$SEED_TMP" "$SEED_ISO"
 
