@@ -5,7 +5,160 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Known Issues
+- **`test-alma`'s Test 2 (network wormhole, `servertestpoll`,
+  `brainmatt/mattx#19`) and Test 4 (sustained file I/O across migration,
+  `dd_migtest`, `brainmatt/mattx#20`) both fail, reproducibly, on both
+  `main` (`2770394`) and `1.9-dev` (`cc5331c`)** — confirmed on multiple
+  clean cluster builds across two independent physical hosts, so these
+  are real, pre-existing mattx bugs, not host-specific flakiness or
+  something introduced by the in-progress DSM work. Test 4 fails
+  identically everywhere (process/file stop advancing within 15s of
+  migration). Test 2's exact symptom differs slightly by host: on the
+  original host the migrated process registers on the target but its
+  port is unreachable afterward; on the second host the process doesn't
+  register there at all — same test failing, seemingly two different
+  severities of the same wormhole break. Everything else in the suite
+  passes clean, no oops, on every host and branch tested. Both filed
+  upstream; `run-tests.sh`'s failure messages now reference the issue
+  numbers directly. Not root-caused — reporting for the maintainer.
+- **mattx#16/#17 root-caused and fixed on `1.9-dev`, from a kernel strace
+  Matt captured and posted on #16**: `mattx_hooks_exit()` unregistered
+  every other kretprobe except `shmat_kprobe` — left registered after
+  `rmmod`, it collides with the next `insmod`'s registration attempt for
+  the same symbol (`-EINVAL`), which isn't checked, leading to a NULL
+  pointer dereference shortly after. Explains the "only the first restart
+  after boot crashes" pattern exactly: the leak only happens on the first
+  `rmmod`. **Fixed and merged**: `brainmatt/mattx#21`, confirmed by Matt
+  on his own end ("service mattx restart has never been more stable"),
+  #16 closed. Pulled the merge plus Matt's subsequent DSM work (MESI
+  protocol finalized as the default, `dsmstresstest`) into both hosts'
+  checkouts — `1.9-dev` is now at `2022351`.
+  **This fix only accounts for the `1.9-dev` case, though** — we also
+  reproduced the same crash-and-hang symptom on plain `main`, which has
+  no `shmat_kprobe` (no DSM code) at all, so it can't be the same root
+  cause there. Audited `main`'s own kretprobe/kprobe register/unregister
+  symmetry the same way and found none of this bug class present — every
+  probe is cleanly unregistered. The `main`-branch hang remains a
+  separate, unexplained mystery; we only have the one occurrence, no
+  console capture or strace for it. **Tried capturing the guest's serial
+  console during a live crash/hang on the original host (3 attempts, up
+  to 60s reads, one starting ~6.5 minutes in — well past the kernel's
+  hung-task watchdog threshold): zero bytes every time** — not a timing
+  miss, genuinely silent throughout, so console capture alone is
+  exhausted as a diagnostic path without kdump (not currently configured
+  on the guests). See upstream issues #16, #17, and PR #21 for the full
+  history.
+- **New DSM Test 3 (`scripts/test-dsm.sh`) found a real bug on its first
+  run: `shmget()` fails with `EFAULT` ("Bad address") when called through
+  the migSHM wormhole as a Surrogate.** The previously-reported "6/6
+  passing" DSM suite only ever exercised the `shmdt`/`shmctl` wormhole
+  hooks — `dsmtest.c` calls `shmget()`/`shmat()` before Test 2's migration
+  point, so those two of the four hooks in `mattx_hooks.c`
+  (`shmget`/`shmat`/`shmdt`/`shmctl`) were never actually exercised
+  through the wormhole before. Test 3 migrates earlier, before any SHM
+  syscall fires, closing that gap — and immediately caught this: the
+  worker's very first `shmget()` post-migration fails outright and the
+  process hangs there, never reaching its 100-loop run. Reproduced
+  cleanly on the second host (see above); Test 1/2 still pass. Filed
+  upstream as `brainmatt/mattx#18`.
+  **Re-tested against `2022351` (MESI as the new default) under
+  `dsm_mode 2` explicitly — still fails, but the failure shape changed**:
+  under `dsm_mode 1` the worker got a clean, fast `EFAULT` from `shmget()`
+  and exited via its own `perror()` + `exit(1)` (confirmed in
+  `dsmtest.c`'s source, which only exits on that path); under `dsm_mode 2`
+  the worker produces zero log output at all — not even its pre-migration
+  startup line, which should have survived the migration in its stdio
+  buffer and only needed a normal `exit()` to flush. Suggests it's now
+  hanging somewhere rather than failing fast, though not confirmed
+  further. Not root-caused at the source level ourselves.
+- **This test host's `libvirtd` doesn't reliably track running VMs**:
+  `virsh list`/`net-list` intermittently report nothing while the
+  underlying qemu/dnsmasq processes are still alive and healthy. One
+  contributing cause found and fixed (see Fixed, below); a second,
+  unexplained disappearance was also observed. Host-level libvirt issue,
+  not a mattx or test-suite bug — needs root access to debug further.
+
+### Changed
+- **Known-issue failures now name their upstream issue directly in the
+  `[FAIL]` message** (`run-tests.sh` Test 2 → `brainmatt/mattx#19`, Test 4
+  → `brainmatt/mattx#20`; `test-dsm.sh` Test 3's shmget-related failures →
+  `brainmatt/mattx#18`), so a run that hits one of these doesn't read as a
+  fresh mystery — it's immediately clear which failures are already
+  tracked, known-WIP bugs versus something new.
+- **`scripts/create-vm.sh` now assigns each VM a static IP via cloud-init
+  `network-config` instead of relying on DHCP.** The test harness already
+  hardcodes a fixed IP per node everywhere (`node_ip()` in `lib.sh`, the
+  MAC reservations in `ensure-libvirt-network.sh`) — DHCP was only ever a
+  roundabout way to arrive at an address already known in advance.
+  Directly motivated by a second test host where `dnsmasq` on the
+  `mattx-test` network silently never answered DHCPDISCOVER requests
+  (confirmed via `tcpdump` that the guest's broadcasts reached the bridge;
+  `dnsmasq` never even invoked its lease-helper script) — root cause not
+  identified, but static IPs sidestep it entirely and remove a moving part
+  from provisioning on every host, not just that one.
+- **`scripts/create-vm.sh`'s cloud-init now sets a console-only root
+  password (`mattx-console`)**, so a VM whose networking never comes up
+  can still be diagnosed via `virsh console <vm>` even when SSH is
+  completely unreachable. `ssh_pwauth` stays `false`, so this doesn't
+  weaken network-facing SSH auth at all — console access only.
+- **Split Test 5 (stale cluster link / peer service bounce) out of
+  `scripts/run-tests.sh` into its own `scripts/test-stale-link.sh`**
+  (`make test-stale-link-alma`/`-deb`/`-ubu`). Test 5's own mechanism is a
+  `systemctl restart mattx` on a node — the exact trigger for mattx#16/#17
+  (see Known Issues) — so bundling it into the default suite meant that
+  upstream kernel bug could take down Tests 1-4's results along with it,
+  even though those tests are otherwise unrelated to the stale-link
+  scenario. `make test-alma` now covers Tests 1-4 only and finishes
+  cleanly on its own. The shared helpers both scripts need
+  (`show_location`, `do_migrate`, `check_no_oops`, `process_stat`,
+  `is_actually_running`, `repro_setup`) moved into `lib.sh` so they're not
+  duplicated between the two.
+- **Every report now opens with a version banner**: the exact mattx git
+  commit deployed (read from the remote node's own `~/mattx` checkout, not
+  just the local source tree, so it reflects what actually got built) and
+  each node's running kernel (`uname -r`). Added to `auto_report_wrap()`
+  in `lib.sh`, so it applies to every script that uses it (`run-tests.sh`,
+  `test-dsm.sh`, `test-stale-link.sh`, `test-mpi.sh`, all `test-eessi-*.sh`)
+  with no per-script changes needed. Motivated directly by this session's
+  mattx#16/#17 investigation, where "what commit/kernel was this actually
+  run on" repeatedly had to be reconstructed after the fact.
+
+### Fixed
+- **`scripts/ensure-libvirt-network.sh` retries `virsh net-start` (5
+  attempts, 2s apart) before falling back to its destroy+undefine+redefine
+  recovery**, instead of recreating the network (and orphaning any
+  already-running VM's network attachment) on the very first transient
+  failure. See the libvirt flakiness entry above for why this matters.
+
 ### Added
+- **kdump, on AlmaLinux nodes, verified working end-to-end**:
+  `setup-node.sh` now installs `kexec-tools` + `kdump-utils` +
+  `makedumpfile` (on RHEL 10, `kexec-tools` alone is only the low-level
+  `kexec`/`vmcore-dmesg` binaries — `kdumpctl`/`kdump.service`/
+  `/etc/kdump.conf` come from the separate `kdump-utils` package, found
+  the hard way after the first attempt installed `kexec-tools` alone and
+  `kdumpctl` came back "command not found"), adds `crashkernel=192M`, and
+  enables `kdump.service` — piggybacked onto the reboot cycle
+  provisioning already does, so it costs nothing extra. Verified for
+  real: triggered a live kernel crash (`echo c > /proc/sysrq-trigger`)
+  and confirmed a full `vmcore` + auto-extracted `vmcore-dmesg.txt`
+  landed in `/var/crash` and was retrievable via the new
+  `scripts/fetch-crash-dump.sh <alma|deb|ubu> <1|2|3>` (lists and rsyncs
+  `/var/crash` into `test/crash-dumps/<node>-<timestamp>/`, gitignored).
+  Real crash/hang diagnosis on our own hosts (not just Matt's) was the
+  actual gap all along — repeated live serial console reads during a
+  hang came back completely empty (see Known Issues), and it took Matt's
+  own kdump-equipped strace to actually root-cause mattx#16/#17 (see
+  `brainmatt/mattx#21`); this closes that gap for next time. Debian/Ubuntu
+  nodes not covered yet (different tooling, `kdump-tools`, untested).
+- **`scripts/report-table.py` (`make report-table`)**: generates a per-run
+  summary table (Markdown and HTML) from `test/reports/*.txt` transcripts
+  — one row per test run, keyed by kernel version and mattx commit (read
+  from each report's new version banner, see above; older reports without
+  one show "unknown" rather than being dropped), then date, then a
+  compact pass/fail result with the specific failing tests listed. Sorted
+  so repeated runs against the same (kernel, commit) sit together.
 - **`scripts/test-mpi.sh` (`make test-mpi-alma`/`-deb`/`-ubu`)**: a new,
   dedicated MPI migration test, separate from `test-eessi-osu-shm.sh`.
   Builds and runs upstream's own `bin/mpich/mpitest` debugging pair

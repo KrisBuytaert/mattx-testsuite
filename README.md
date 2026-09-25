@@ -451,6 +451,49 @@ $S mattx@192.168.100.21 "echo 'debug 1' | sudo tee /proc/mattx/admin"
 $S mattx@192.168.100.22 "echo 'debug 1' | sudo tee /proc/mattx/admin"
 ```
 
+### Getting a real kernel backtrace on a crash/hang (kdump)
+
+A crashed or hung `mattx.ko` load often produces **nothing** on the guest's
+serial console — confirmed the hard way (repeated console-read attempts
+during a live hang, including one starting 6+ minutes in, well past the
+kernel's own hung-task watchdog: zero bytes captured). If a node stops
+responding, `dmesg`/`virsh console`/SSH after the fact won't show you
+anything either, since the crash already took the console down with it.
+kdump is the actual fix for this: a real oops/panic (as opposed to a hard
+hang with no oops at all — kdump can't help with that specific case, only
+with genuine kernel faults) boots a small reserved-memory crash kernel and
+writes the full crashed kernel's memory to `/var/crash` on the guest
+*before* it reboots.
+
+`setup-node.sh` enables this automatically on every AlmaLinux node as part
+of its normal provisioning (`kexec-tools` + `kdump-utils` + `makedumpfile`
+installed — `kexec-tools` alone is just the low-level `kexec`/
+`vmcore-dmesg` binaries on RHEL 10, `kdumpctl`/`kdump.service`/
+`/etc/kdump.conf` come from `kdump-utils` — plus `crashkernel=192M` added
+to the boot line and `kdump.service` enabled, all piggybacked onto the
+reboot that provisioning already does, so it costs nothing extra). Not yet
+done for Debian/Ubuntu nodes (different tooling — `kdump-tools`, not
+`kexec-tools`/`kdump-utils` — and untested; PRs welcome).
+
+After a crash, fetch whatever landed in `/var/crash`:
+```bash
+scripts/fetch-crash-dump.sh alma 1   # or 2, or 3
+```
+This lists what's there and rsyncs it into `test/crash-dumps/<node>-<timestamp>/`
+(gitignored — these can be sizable and are inherently local/ephemeral).
+Each crash directory includes a `vmcore-dmesg.txt` — just the crash's
+dmesg buffer, extracted automatically — which is usually enough to see the
+actual oops/panic without needing the full `crash` debugger and a matching
+debuginfo kernel:
+```bash
+cat test/crash-dumps/almanode1-*/vmcore-dmesg.txt
+```
+
+Sanity-check kdump is actually live on a node at any time with:
+```bash
+$S mattx@192.168.100.11 "sudo kdumpctl status"
+```
+
 ---
 
 ## Disk Layout
