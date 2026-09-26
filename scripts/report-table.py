@@ -126,31 +126,172 @@ def render_markdown(reports):
     return "\n".join(out) + "\n"
 
 
+HTML_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>mattx test run summary</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2em; color: #1a1a1a; }
+  h1 { font-size: 1.3em; }
+  .controls { margin-bottom: 1em; display: flex; gap: 2em; align-items: flex-start; flex-wrap: wrap; }
+  .controls fieldset { border: 1px solid #ccc; border-radius: 6px; padding: 0.4em 1em; }
+  .controls legend { font-size: 0.85em; color: #555; padding: 0 0.4em; }
+  .controls label { display: block; font-size: 0.9em; margin: 2px 0; white-space: nowrap; }
+  #search { padding: 4px 8px; font-size: 0.9em; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 0.9em; }
+  th { background: #f5f5f5; cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sorted-asc::after { content: " \\25B2"; }
+  th.sorted-desc::after { content: " \\25BC"; }
+  ul { margin: 4px 0 0 0; padding-left: 1.2em; }
+  tr.row-hidden { display: none; }
+  #count { font-size: 0.85em; color: #555; margin-bottom: 0.5em; }
+</style>
+</head>
+<body>
+<h1>mattx test run summary</h1>
+<div class="controls">
+  <fieldset>
+    <legend>Run type</legend>
+    __LABEL_CHECKBOXES__
+  </fieldset>
+  <fieldset>
+    <legend>Result</legend>
+    <label><input type="checkbox" class="status-filter" value="pass" checked> Pass</label>
+    <label><input type="checkbox" class="status-filter" value="fail" checked> Fail</label>
+    <label><input type="checkbox" class="status-filter" value="incomplete" checked> Incomplete</label>
+  </fieldset>
+  <fieldset>
+    <legend>Search (kernel / commit)</legend>
+    <input id="search" type="text" placeholder="filter...">
+  </fieldset>
+</div>
+<div id="count"></div>
+<table id="summary">
+<thead>
+<tr>
+  <th data-key="kernel">Kernel</th>
+  <th data-key="commit">mattx commit</th>
+  <th data-key="label">Label</th>
+  <th data-key="date">Date</th>
+  <th data-key="status">Result</th>
+</tr>
+</thead>
+<tbody>
+__ROWS__
+</tbody>
+</table>
+<script>
+(function() {
+  var table = document.getElementById('summary');
+  var tbody = table.tBodies[0];
+  var headers = Array.prototype.slice.call(table.querySelectorAll('th[data-key]'));
+
+  function getRows() { return Array.prototype.slice.call(tbody.rows); }
+
+  function applySort(key, dir) {
+    var rows = getRows();
+    rows.sort(function(a, b) {
+      var av = a.getAttribute('data-' + key) || '';
+      var bv = b.getAttribute('data-' + key) || '';
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+    headers.forEach(function(h) { h.classList.remove('sorted-asc', 'sorted-desc'); });
+    headers.filter(function(h) { return h.getAttribute('data-key') === key; })
+      .forEach(function(h) { h.classList.add(dir === 1 ? 'sorted-asc' : 'sorted-desc'); });
+  }
+
+  var sortState = { key: null, dir: 1 };
+  headers.forEach(function(h) {
+    h.addEventListener('click', function() {
+      var key = h.getAttribute('data-key');
+      sortState.dir = (sortState.key === key) ? -sortState.dir : -1;
+      sortState.key = key;
+      applySort(key, sortState.dir);
+    });
+  });
+
+  // Default view: most recent run first.
+  sortState.key = 'date'; sortState.dir = -1;
+  applySort('date', -1);
+
+  function applyFilters() {
+    var activeLabels = Array.prototype.map.call(
+      document.querySelectorAll('.label-filter:checked'), function(cb) { return cb.value; }
+    );
+    var activeStatuses = Array.prototype.map.call(
+      document.querySelectorAll('.status-filter:checked'), function(cb) { return cb.value; }
+    );
+    var search = document.getElementById('search').value.trim().toLowerCase();
+    var visible = 0;
+    getRows().forEach(function(row) {
+      var label = row.getAttribute('data-label');
+      var status = row.getAttribute('data-status');
+      var haystack = (row.getAttribute('data-kernel') + ' ' + row.getAttribute('data-commit')).toLowerCase();
+      var show = activeLabels.indexOf(label) !== -1 &&
+                 activeStatuses.indexOf(status) !== -1 &&
+                 (search === '' || haystack.indexOf(search) !== -1);
+      row.classList.toggle('row-hidden', !show);
+      if (show) visible++;
+    });
+    document.getElementById('count').textContent = visible + ' / ' + getRows().length + ' runs shown';
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.label-filter, .status-filter'), function(cb) {
+    cb.addEventListener('change', applyFilters);
+  });
+  document.getElementById('search').addEventListener('input', applyFilters);
+
+  applyFilters();
+})();
+</script>
+</body>
+</html>
+"""
+
+
 def render_html(reports):
-    out = ['<table border="1" cellpadding="4" cellspacing="0">']
-    out.append("<tr><th>Kernel</th><th>mattx commit</th><th>Label</th><th>Date</th><th>Result</th></tr>")
+    """Self-contained, sortable, filterable page -- no external dependencies,
+    works fine opened directly via file://. Default view sorts by date,
+    most recent run first; click any column header to re-sort by it."""
+    rows = []
+    labels = sorted({r["label"] for r in reports})
     for r in sorted(reports, key=sort_key):
         kernel = escape(kernel_summary(r["kernels"]))
         commit = escape((r["commit"] or "unknown")[:12])
-        label = escape(f"{r['label']} ({r['distro']})")
+        label_raw = escape(r["label"])
+        label_full = escape(f"{r['label']} ({r['distro']})")
         date = escape(r["date"])
         kind, header, fails = test_summary(r["assertions"], r["completed"])
         bg = {
-            "pass": ' style="background:#e6ffed"',
-            "fail": ' style="background:#ffeef0"',
-            "incomplete": ' style="background:#fff8e1"',
+            "pass": "#e6ffed",
+            "fail": "#ffeef0",
+            "incomplete": "#fff8e1",
         }[kind]
         if fails:
             fail_items = "".join(f"<li>{escape(f)}</li>" for f in fails)
-            result = f"{escape(header)}<ul>{fail_items}</ul>"
+            result_html = f"{escape(header)}<ul>{fail_items}</ul>"
         else:
-            result = escape(header)
-        out.append(
-            f"<tr><td>{kernel}</td><td>{commit}</td><td>{label}</td><td>{date}</td>"
-            f"<td{bg}>{result}</td></tr>"
+            result_html = escape(header)
+        rows.append(
+            f'<tr data-kernel="{kernel}" data-commit="{commit}" data-label="{label_raw}" '
+            f'data-date="{date}" data-status="{kind}" style="background:{bg}">'
+            f"<td>{kernel}</td><td>{commit}</td><td>{label_full}</td><td>{date}</td>"
+            f"<td>{result_html}</td></tr>"
         )
-    out.append("</table>")
-    return "\n".join(out) + "\n"
+
+    label_checkboxes = "\n    ".join(
+        f'<label><input type="checkbox" class="label-filter" value="{escape(l)}" checked> {escape(l)}</label>'
+        for l in labels
+    )
+
+    page = HTML_PAGE_TEMPLATE.replace("__LABEL_CHECKBOXES__", label_checkboxes)
+    page = page.replace("__ROWS__", "\n".join(rows))
+    return page
 
 
 def main():
