@@ -144,7 +144,7 @@ SEND_FAILED=$(run_on "$NODE1" "sudo dmesg | awk -v c=$DMESG_CURSOR_NODE1 '
     match(\$0, /^\[[ 0-9.]+\]/) {
         ts = substr(\$0, RSTART + 1, RLENGTH - 2); gsub(/ /, \"\", ts)
         if ((ts + 0) > (c + 0)) print
-    }' | grep -c 'Network send failed'" || echo 0)
+    }' | grep -c 'Network send failed'" || true)
 
 if [ "$SEND_FAILED" -gt 0 ]; then
     echo "  ► reproduced: blueprint send failed against the stale link (see dmesg below)"
@@ -167,7 +167,18 @@ if [ "$SEND_FAILED" -gt 0 ]; then
     fi
 else
     echo "  ► stale-link condition did not reproduce this run (send succeeded) -- falling back to a normal migration assertion"
-    if is_actually_running "migtest" "$NODE2"; then
+    # Poll briefly rather than checking once immediately -- right after
+    # node2's mattx service restart, it can take a few extra seconds
+    # beyond the standard post-migration wait to settle enough for the
+    # migrated process to actually show up as running. A single immediate
+    # check here was producing spurious FAILs unrelated to any real bug
+    # (confirmed via no oops + a successful blueprint send in the same run).
+    MIGRATED=0
+    for _ in $(seq 1 4); do
+        if is_actually_running "migtest" "$NODE2"; then MIGRATED=1; break; fi
+        sleep 5
+    done
+    if [ "$MIGRATED" -eq 1 ]; then
         show_location "migtest" "$NODE2"
         pass "test5: migtest migrated normally to $NODE2 (stale-link condition not present this run)"
     else
