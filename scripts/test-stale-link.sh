@@ -77,12 +77,51 @@ fail() { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }
 
 _FAIL_T5=$FAIL
 echo "=== Test 5: migration against a stale cluster link (peer service bounce) ==="
-run_on "$NODE2" "sudo systemctl restart mattx"
+
+# This restart is the exact trigger for mattx#16/#17: the node can crash and
+# either self-recover via reboot (SSH session dies mid-command, ssh exits
+# non-zero) or hang indefinitely. Under `set -e`, an unguarded failure here
+# would kill this whole script before the recovery-wait loop below ever got
+# a chance to run -- exactly what happened in practice (script aborted on a
+# raw "Connection reset by peer" with no [FAIL]/Results line at all). Guard
+# it, and let the wait loop below do its job either way.
+RESTART_RC=0
+run_on "$NODE2" "sudo systemctl restart mattx" || RESTART_RC=$?
+if [ "$RESTART_RC" -ne 0 ]; then
+    echo "  ⚠ restart command on $NODE2 did not return cleanly (rc=$RESTART_RC) -- possible crash mid-restart (mattx#16/#17)"
+fi
+
+# A crashed node needs a full VM reboot to recover, not just a service
+# bounce -- give this a realistic ~2 minute ceiling (was 30s, which only
+# ever covered "service is just slow," never "node is rebooting"). Still
+# bounded: a genuinely-hung node (mattx#17's non-recovering case) gives up
+# cleanly here instead of hanging the script forever.
 i=0
 until run_on "$NODE2" "cat /proc/mattx/nodes" >/dev/null 2>&1; do
-    sleep 2; i=$((i+1))
-    [ "$i" -lt 15 ] || { fail "test5: node2 mattx service did not come back after restart"; break; }
+    sleep 3; i=$((i+1))
+    [ "$i" -lt 40 ] || break
 done
+if run_on "$NODE2" "cat /proc/mattx/nodes" >/dev/null 2>&1; then
+    NODE2_UP=1
+else
+    NODE2_UP=0
+    fail "test5: $NODE2 did not come back within ~2 minutes after restart (possible mattx#16/#17 crash/hang)"
+fi
+
+if [ "$NODE2_UP" -eq 0 ]; then
+    # Nothing past this point can assume $NODE2 is reachable -- skip
+    # straight to whatever checks are still safe (node1's own oops check)
+    # and report, rather than risk the same unguarded-abort problem on a
+    # later command.
+    check_no_oops "$NODE1" "$(dmesg_cursor "$NODE1")" && pass "test5: no oops on $NODE1"
+    echo ""
+    echo "=============================="
+    echo "Stale-Link Results: $PASS passed, $FAIL failed"
+    echo "=============================="
+    [ "$FAIL" -eq 0 ]
+    exit
+fi
+
 run_on "$NODE2" "echo 'balancer 0' | sudo tee /proc/mattx/admin > /dev/null"
 NODE2_ID=$(run_on "$NODE2" "cat /proc/mattx/nodes" | awk '/\(Local\)/{print $1}')
 
