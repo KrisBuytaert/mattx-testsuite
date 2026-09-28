@@ -6,6 +6,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Known Issues
+- **New `test-dsm-mesi3-alma` test (`scripts/test-dsm-mesi3.sh`, 3-node cluster) confirms a real
+  MESI (`DSM_MODE=2`) coherency bug for 3+ nodes, on upstream `1.9-dev` (`103e83b`)** — the
+  maintainer had already flagged this directly ("MESI already works fine for 2 nodes but not for 3
+  and more") and is mid-redesign; this gives it a concrete, reproducible regression test. Using
+  `dsmstresstest-debug`'s per-PID `.cmd` control file to trigger exact page faults: a write issued
+  by the *home* node (the process's original node) propagates correctly to both remote nodes
+  (3/3 pass). A write issued by either *non-home* node does not propagate to **anyone** — not even
+  back to the home node — reproduced identically across 3 separate full runs (11 passed, 4 failed
+  each time), no oops on any node. Root cause not investigated (maintainer is already
+  re-architecting this area).
 - **`test-alma`'s Test 2 (network wormhole, `servertestpoll`,
   `brainmatt/mattx#19`) and Test 4 (sustained file I/O across migration,
   `dd_migtest`, `brainmatt/mattx#20`) both fail, reproducibly, on both

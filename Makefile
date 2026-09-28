@@ -25,7 +25,7 @@ KEYS_DIR := keys
         test-eessi-nextflow-alma test-eessi-nextflow-deb test-eessi-nextflow-ubu \
         test-eessi-osu-shm-alma test-eessi-osu-shm-deb test-eessi-osu-shm-ubu \
         test-mpi-alma test-mpi-deb test-mpi-ubu \
-        test-dsm-alma test-dsm-deb test-dsm-ubu \
+        test-dsm-alma test-dsm-deb test-dsm-ubu test-dsm-mesi3-alma \
         test-stale-link-alma test-stale-link-deb test-stale-link-ubu \
         start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
@@ -325,6 +325,9 @@ test-alma: ensure-alma-running
 
 test-dsm-alma: ensure-alma-running
 	$(SCRIPTS)/test-dsm.sh alma
+
+test-dsm-mesi3-alma: ensure-alma-running3
+	$(SCRIPTS)/test-dsm-mesi3.sh alma
 
 test-dsm-deb: ensure-deb-running
 	$(SCRIPTS)/test-dsm.sh deb
