@@ -79,6 +79,16 @@ make allclusters   All clusters (use -j3 to run in parallel)
 make test-alma     Run migration smoke tests on AlmaLinux cluster
 make test-deb      Run migration smoke tests on Debian cluster
 make test-ubu      Run migration smoke tests on Ubuntu cluster
+make test-stale-link-alma  Run the stale cluster-link regression test (isolated from
+                            test-alma since its own trigger — restarting a node's
+                            mattx service — can itself crash/hang the node; see the
+                            Test 5 section below)
+make test-dsm-alma          Run the SysV shared-memory migration (DSM) test suite
+make test-dsm-mesi3-alma    Run the 3-node MESI coherency regression test (needs
+                             almacluster3 — see "3-Node Chain Migration" below)
+make report-table  Regenerate reports/run-summary.md and .html from every report
+                   under reports/ (also happens automatically at the end of every
+                   test run — see "Test Reports" below)
 make setup-eessi-alma          Install CVMFS + EESSI on AlmaLinux cluster
 make setup-eessi-deb           Install CVMFS + EESSI on Debian cluster
 make test-eessi-alma           Run full EESSI test suite on AlmaLinux
@@ -199,6 +209,66 @@ not just process presence), then migrates it back home and confirms the
 same. This is the slowest of the four tests (~10 minutes) by design — it
 needs sustained I/O on both sides of the migration boundary, not just a
 snapshot check immediately after.
+
+### Test 5 — Stale cluster link (`scripts/test-stale-link.sh`, `make test-stale-link-alma`)
+Deliberately restarts node2's `mattx` service mid-test to try to recreate a
+stale `cluster_map` entry on node1 (a connection the kernel still believes
+is live but whose actual TCP socket is gone), then attempts a migration
+against it. **Isolated from `test-alma`/Tests 1–4 on purpose**: the
+`systemctl restart mattx` this test issues is itself a known crash/hang
+trigger on some mattx versions (see `brainmatt/mattx#16`/`#17`), so bundling
+it into the default suite risked taking down otherwise-unrelated results.
+The script is hardened to survive that: a crash mid-restart is caught,
+logged, and waited out (up to ~2 minutes) rather than aborting the whole
+run, so you always get a complete report either way.
+
+## DSM (Distributed Shared Memory) Testing
+
+### `scripts/test-dsm.sh` (`make test-dsm-alma`)
+Exercises SysV shared-memory (`shmget`/`shmat`/`shmdt`/`shmctl`) migration
+using `bin/dsmtest.c` on the standard 2-node cluster: a baseline
+no-migration run, a migration mid-loop (exercising the `shmdt`/`shmctl`
+wormhole paths), and a migration *before* any SHM syscall fires (forcing
+`shmget`/`shmat` through the wormhole too, which the other two scenarios
+don't reach).
+
+### `scripts/test-dsm-mesi3.sh` (`make test-dsm-mesi3-alma`, needs `almacluster3`)
+A 3-node MESI (`DSM_MODE=2`) coherency regression test, using the upstream
+`dsmstresstest-debug` tool (3 workers sharing one SysV SHM segment, each
+independently controllable via a `/tmp/<pid>.cmd` file — `write <msg>` /
+`read` — for exact, on-demand page-fault triggering instead of relying on
+timing). Migrates one worker to each of the 3 nodes and checks that a
+write issued by *any* node's worker propagates correctly to the other two
+— specifically targeting a gap that doesn't exist in a 2-node topology
+(where "the other node" and "the home node" are always the same node).
+
+---
+
+## Test Reports (`reports/`, `scripts/report-table.py`)
+
+Every test script wraps its own run via `auto_report_wrap()` in `lib.sh`:
+the full transcript (stdout+stderr, plus a version banner — the exact
+mattx git commit and each node's kernel version) is captured to a
+timestamped file under `reports/`, e.g. `reports/run-tests-alma-<ts>.txt`.
+`reports/` is gitignored — these are per-run artifacts, not checked in.
+
+At the end of every run, `report-table.py` regenerates two summary files
+from **every** report currently under `reports/`:
+
+- `reports/run-summary.md` — a plain Markdown table (kernel, commit, label,
+  date, result), for quick terminal/PR viewing.
+- `reports/run-summary.html` — the same data as a **self-contained,
+  interactive page** (no external dependencies, works fine opened directly
+  via `file://`): sortable by clicking any column header (defaults to most
+  recent run first), and filterable by run type (`run-tests`/`dsm`/
+  `stale-link`/etc.) and by result (pass/fail/incomplete) via checkboxes,
+  plus a free-text search over kernel/commit.
+
+A report that never reaches its script's own final `Results:` line (e.g.
+the run was killed by a crash) is shown as a distinct **"incomplete"**
+state rather than being silently counted as a pass.
+
+Regenerate on demand without running any tests: `make report-table`.
 
 ---
 
