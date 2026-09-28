@@ -545,6 +545,25 @@ reboot that provisioning already does, so it costs nothing extra). Not yet
 done for Debian/Ubuntu nodes (different tooling — `kdump-tools`, not
 `kexec-tools`/`kdump-utils` — and untested; PRs welcome).
 
+**Quick manual setup on any AlmaLinux/RHEL 10 box** (not tied to this test
+harness — this is the exact sequence `setup-node.sh` runs, standalone):
+```bash
+sudo dnf install -y kexec-tools kdump-utils makedumpfile
+sudo grubby --update-kernel=ALL --args='crashkernel=192M'
+sudo reboot   # crash-kernel memory is only reserved at boot time
+
+# after reboot:
+grep -q crashkernel /proc/cmdline && echo "crashkernel reservation active"
+sudo systemctl enable --now kdump
+sudo kdumpctl status   # expect: "Kdump is operational"
+```
+`192M` is comfortable for a 2GB VM; bump it for a bigger box if
+`kdumpctl status` complains about insufficient reserved memory. Crash
+dumps land in `/var/crash/<timestamp>/` on the crashed host itself —
+`vmcore` (the full memory image) plus an auto-extracted `vmcore-dmesg.txt`
+(just the crash's dmesg buffer, usually enough on its own without needing
+`crash` + matching debuginfo).
+
 After a crash, fetch whatever landed in `/var/crash`:
 ```bash
 scripts/fetch-crash-dump.sh alma 1   # or 2, or 3
