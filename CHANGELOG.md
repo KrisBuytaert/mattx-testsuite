@@ -6,6 +6,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Known Issues
+- **`test-eessi-pytorch.sh` (single-process PyTorch) now passes on the alma cluster (8/8), and
+  new `test-eessi-pytorch-mp.sh` (`make test-eessi-pytorch-mp-<distro>`, based on the EESSI demo's
+  `pytorch_multiprocessing.py`) fails at the first migration check.** The single-process script's
+  earlier failures ("not running on node2", "epoch count did not advance") were test-harness
+  bugs, not MattX: a fixed 8s wait before the ~214k-page transfer completes (10s+ on a cold
+  cluster), and single-sample `ps` STAT checks — a migrated Surrogate flips between `S` and `T`
+  in ~1/3 of samples while its log advances normally. Both are fixed (`wait_running` polling,
+  multi-sample `process_stat`). The multi-process variant (parent + 2 `mp.Process` workers sharing
+  a model via `share_memory()`) migrates only the parent; the workers stay on the home node and
+  the parent's shared counters freeze at a snapshot on the target (epoch 48 -> 48), then resume
+  after the return leg. This is the known shared-memory gap (see `test-dsm.sh`,
+  `brainmatt/mattx#15`); no kernel oops on either node. Its progress check compares the shared
+  epoch counter, taken after arrival — counting log lines or using a pre-migration baseline
+  gives false passes.
 - **New `test-dsm-mesi3-alma` test (`scripts/test-dsm-mesi3.sh`, 3-node cluster) confirms a real
   MESI (`DSM_MODE=2`) coherency bug for 3+ nodes, on upstream `1.9-dev` (`103e83b`)** — the
   maintainer had already flagged this directly ("MESI already works fine for 2 nodes but not for 3

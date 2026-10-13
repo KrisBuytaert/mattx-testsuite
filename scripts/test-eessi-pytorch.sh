@@ -132,7 +132,13 @@ show_migration_dmesg() {
 # exactly this gap).
 process_stat() {
     local pattern="$1" node="$2"
-    run_on "$node" "ps -eo stat,cmd --no-headers | grep -iE -- '$pattern' | grep -v grep | awk '{print \$1}' | head -1" 2>/dev/null
+    # A migrated Surrogate briefly enters signal-stop (STAT T) around wormhole
+    # RPCs -- observed flipping S/T in ~1/3 of samples while the job's log
+    # advanced normally -- so a single ps sample can't distinguish "frozen"
+    # from "momentarily stopped". Sample ~2s remotely and report a
+    # non-stopped state if ANY sample saw one; only report T/Z if every
+    # sample was stopped (a genuinely frozen Deputy/hung job).
+    run_on "$node" "for i in 1 2 3 4 5 6 7 8; do ps -eo stat,cmd --no-headers | grep -iE -- '$pattern' | grep -v grep | awk '{print \$1}' | head -1; sleep 0.25; done | awk 'NF{ if (\$1 !~ /^[TZ]/) {print; found=1; exit} else if (!first) first=\$1 } END{ if (!found && first) print first }'" 2>/dev/null
 }
 
 # Is a process matching pattern actually EXECUTING on this node (STAT other
@@ -141,6 +147,19 @@ is_actually_running() {
     local pattern="$1" node="$2"
     local stat; stat="$(process_stat "$pattern" "$node")"
     [ -n "$stat" ] && [[ "$stat" != T* && "$stat" != Z* ]]
+}
+
+# Poll (up to $3 seconds, default 120) until a process matching pattern is
+# actually executing on node. A fixed sleep after `migrate` is wrong here:
+# the page pump for a PyTorch process is ~200k pages and takes 10s+ on a
+# cold cluster, so the Surrogate legitimately appears after a fixed 8s check.
+wait_running() {
+    local pattern="$1" node="$2" max="${3:-120}" i
+    for ((i = 0; i < max; i += 2)); do
+        is_actually_running "$pattern" "$node" && return 0
+        sleep 2
+    done
+    return 1
 }
 
 # Announce and execute a migration.
@@ -315,7 +334,8 @@ PYEOF
     EPOCHS_BEFORE=$(run_on "$NODE1" "grep -c '^epoch ' /tmp/pytorch_migtest.log 2>/dev/null || echo 0")
 
     do_migrate "python3 (PyTorch)" "$JOB_PID" "$NODE1" "$NODE2" "$NODE2_ID"
-    sleep 8
+    wait_running "pytorch_migtest" "$NODE2" 120 || true
+    sleep 3
 
     show_both_nodes "immediately after outbound migration ($NODE1 -> $NODE2)" "pytorch_migtest"
     show_threads "pytorch_migtest" "$NODE1"
@@ -352,7 +372,8 @@ PYEOF
             # entry on the destination and can crash the process right
             # after wake.
             do_migrate "python3 (PyTorch)" "$JOB_PID" "$NODE1" "$NODE1" "home" "$NODE2"
-            sleep 8
+            wait_running "pytorch_migtest" "$NODE1" 120 || true
+            sleep 3
 
             show_both_nodes "immediately after return migration ($NODE2 -> $NODE1)" "pytorch_migtest"
             show_threads "pytorch_migtest" "$NODE2"

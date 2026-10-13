@@ -20,6 +20,7 @@ KEYS_DIR := keys
         test-eessi-quantumespresso-alma test-eessi-quantumespresso-deb test-eessi-quantumespresso-ubu \
         test-eessi-openfoam-alma test-eessi-openfoam-deb test-eessi-openfoam-ubu \
         test-eessi-pytorch-alma test-eessi-pytorch-deb test-eessi-pytorch-ubu \
+        test-eessi-pytorch-mp-alma test-eessi-pytorch-mp-deb test-eessi-pytorch-mp-ubu \
         test-eessi-tensorflow-alma test-eessi-tensorflow-deb test-eessi-tensorflow-ubu \
         test-eessi-bioconductor-alma test-eessi-bioconductor-deb test-eessi-bioconductor-ubu \
         test-eessi-nextflow-alma test-eessi-nextflow-deb test-eessi-nextflow-ubu \
@@ -449,6 +450,15 @@ test-eessi-pytorch-deb: $(STAMP)/deb-eessi
 
 test-eessi-pytorch-ubu: $(STAMP)/ubu-eessi
 	$(SCRIPTS)/test-eessi-pytorch.sh ubu
+
+test-eessi-pytorch-mp-alma: $(STAMP)/alma-eessi
+	$(SCRIPTS)/test-eessi-pytorch-mp.sh alma
+
+test-eessi-pytorch-mp-deb: $(STAMP)/deb-eessi
+	$(SCRIPTS)/test-eessi-pytorch-mp.sh deb
+
+test-eessi-pytorch-mp-ubu: $(STAMP)/ubu-eessi
+	$(SCRIPTS)/test-eessi-pytorch-mp.sh ubu
 
 test-eessi-bioconductor-alma: $(STAMP)/alma-eessi
 	$(SCRIPTS)/test-eessi-bioconductor.sh alma
