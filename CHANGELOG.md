@@ -17,7 +17,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a model via `share_memory()`) migrates only the parent; the workers stay on the home node and
   the parent's shared counters freeze at a snapshot on the target (epoch 48 -> 48), then resume
   after the return leg. This is the known shared-memory gap (see `test-dsm.sh`,
-  `brainmatt/mattx#15`); no kernel oops on either node. Its progress check compares the shared
+  `brainmatt/mattx#15`), filed upstream as `brainmatt/mattx#35`; no kernel oops on either node. Its progress check compares the shared
   epoch counter, taken after arrival — counting log lines or using a pre-migration baseline
   gives false passes.
 - **New `test-dsm-mesi3-alma` test (`scripts/test-dsm-mesi3.sh`, 3-node cluster) confirms a real
