@@ -18,6 +18,10 @@ on:
         description: "mattx commit to test (default: 1.9-dev tip)"
         required: false
         default: ""
+      run_eessi:
+        description: "run the long EESSI suites after the functional ones (true/false)"
+        required: false
+        default: "true"
 
 concurrency:
   group: mattx-cluster
@@ -66,6 +70,7 @@ jobs:
 
   eessi:
     needs: functional
+    if: ${{ inputs.run_eessi != 'false' }}
     runs-on: mattx-host
     timeout-minutes: 240
     env:
