@@ -6,6 +6,10 @@
 # NOT in the job workspace: .stamp/ (which VMs/networks exist), keys/ (the VM ssh
 # key), reports/ (the full report history the published page is built from) and
 # crash-dumps/. The workspace checkout is rsynced over the code only.
+#
+# Two jobs, in order: `functional` (build + deploy + fast suites, published as soon
+# as it finishes) then `eessi` (the long EESSI application suites, published again).
+# `record` always runs last so the poller does not retrigger a run that broke early.
 name: mattx-ci
 on:
   workflow_dispatch:
@@ -20,9 +24,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test:
+  functional:
     runs-on: mattx-host
-    timeout-minutes: 240
+    timeout-minutes: 120
     env:
       H: /var/lib/forgejo-runner-mattx/harness
       PAGES_KEY: /var/lib/forgejo-runner-mattx/pages_deploy
@@ -48,10 +52,26 @@ jobs:
       - name: Build and deploy to the nodes
         run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
 
-      - name: Functional suites
+      - name: Functional suites (run-tests, dsm, stale-link, mesi3)
         continue-on-error: true
         run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-alma test-dsm-alma test-stale-link-alma test-dsm-mesi3-alma
 
+      - name: Fetch crash dumps
+        if: always()
+        run: cd "$H" && scripts/fetch-crash-dump.sh || true
+
+      - name: Publish reports (functional)
+        if: always()
+        run: cd "$H" && scripts/publish-pages.sh
+
+  eessi:
+    needs: functional
+    runs-on: mattx-host
+    timeout-minutes: 240
+    env:
+      H: /var/lib/forgejo-runner-mattx/harness
+      PAGES_KEY: /var/lib/forgejo-runner-mattx/pages_deploy
+    steps:
       - name: EESSI suites
         continue-on-error: true
         run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-eessi-alma
@@ -60,10 +80,16 @@ jobs:
         if: always()
         run: cd "$H" && scripts/fetch-crash-dump.sh || true
 
-      - name: Publish reports
+      - name: Publish reports (eessi)
         if: always()
         run: cd "$H" && scripts/publish-pages.sh
 
+  record:
+    needs: [functional, eessi]
+    if: always()
+    runs-on: mattx-host
+    steps:
       - name: Record tested pair
-        if: always()
-        run: echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested"
+        run: |
+          H=/var/lib/forgejo-runner-mattx/harness
+          echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested"
