@@ -48,6 +48,7 @@ jobs:
           rsync -a --delete --exclude=.git --exclude=.stamp --exclude=keys --exclude=reports --exclude=crash-dumps ./ "$H/"
           mkdir -p "$H/reports" "$H/crash-dumps"
           git rev-parse HEAD > "$H/.testsuite-sha"
+          touch "$H/.run-start"
 
       - name: Fetch mattx source at the requested commit
         run: |
@@ -107,3 +108,14 @@ jobs:
           echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested.$b"
           # Always recorded (so a broken deploy is not retried every poll); the result is kept alongside.
           echo "functional=${{ needs.functional.result }} eessi=${{ needs.eessi.result }}" > "$HOME/last-result.$b"
+
+  notify:
+    needs: [functional, eessi, record]
+    if: always()
+    runs-on: mattx-host
+    steps:
+      - name: Telegram summary
+        run: |
+          H=/var/lib/forgejo-runner-mattx/harness
+          # the checkout is not needed; the script lives in the persistent harness copy
+          H=$H "$H/ci/notify-telegram.sh" "${{ inputs.mattx_ref || '1.9-dev' }}" "${{ needs.functional.result }}" "${{ needs.eessi.result }}" "${{ github.run_number }}"
