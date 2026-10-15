@@ -8,7 +8,7 @@ KEYS_DIR="$TEST_DIR/keys"
 SSH_KEY="$KEYS_DIR/mattx_test"
 SSH_USER="mattx"
 SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-          -o BatchMode=yes -o ConnectTimeout=10 -o LogLevel=ERROR"
+          -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o LogLevel=ERROR"
 
 node_ip() {
     case "$1" in
