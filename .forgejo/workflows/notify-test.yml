@@ -11,6 +11,9 @@ jobs:
   t:
     runs-on: mattx-host
     steps:
+      - uses: actions/checkout@v4
+      - name: telegram summary script (sample args)
+        run: H=/var/lib/forgejo-runner-mattx/harness ./ci/notify-telegram.sh notify-test success skipped "${{ github.run_number }}"
       - run: |
           echo "outcome=${{ inputs.outcome }}"
           [ "${{ inputs.outcome }}" = pass ]
