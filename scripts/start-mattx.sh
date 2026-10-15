@@ -29,6 +29,7 @@ echo "[start] unloading MattX modules on $NODE..."
 # expected outcome of unloading a loaded module for now, not a deploy failure:
 # wait for the reboot. mattx.service loads the already-installed (new) modules
 # at boot, so nothing further needs unloading afterwards.
+run_on "$NODE" "sync"   # see the comment in build-mattx.sh: a crash must not lose config writes
 set +e
 run_on "$NODE" "sudo systemctl stop mattx 2>/dev/null; sudo umount /mattxfs 2>/dev/null; sudo rmmod mattxfs 2>/dev/null; sudo rmmod mattx 2>/dev/null; true"
 rc=$?
