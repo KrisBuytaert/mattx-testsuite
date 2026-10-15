@@ -21,12 +21,18 @@ jobs:
             for c in virsh virt-install qemu-img rsync ssh curl make git python3; do
               printf '%s -> ' "$c"; command -v "$c" || echo MISSING
             done
-            echo "== harness inputs"
-            echo "PAGES_KEY=${PAGES_KEY:-unset}"
-            [ -n "${PAGES_KEY:-}" ] && ls -l "$PAGES_KEY" 2>&1
-            echo "MATTX_KEY=${MATTX_KEY:-unset}"
-            ls -ld /var/lib/libvirt/images 2>&1
-            ls -l keys 2>&1 | head -3 || true
+            echo "== harness (persistent dir)"
+            H=$HOME/harness
+            ls -ld "$H" "$H/keys/mattx_test" "$HOME/pages_deploy" 2>&1
+            echo "stamps: $(ls "$H/.stamp" 2>&1 | tr '\n' ' ')"
+            echo "reports: $(ls "$H"/reports/*.txt 2>/dev/null | wc -l)"
+            echo "== ssh to nodes with the harness key"
+            for ip in 11 12 13; do
+              printf '192.168.100.%s -> ' "$ip"
+              ssh -i "$H/keys/mattx_test" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null mattx@192.168.100.$ip 'uname -r' 2>&1 | tail -1
+            done
+            echo "== pages deploy key can authenticate to github"
+            GIT_SSH_COMMAND="ssh -i $HOME/pages_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git ls-remote git@github.com:KrisBuytaert/mattx-test-reports.git HEAD 2>&1 | tail -1
           } > "$out" 2>&1
           chmod 644 "$out"
           cat "$out"
