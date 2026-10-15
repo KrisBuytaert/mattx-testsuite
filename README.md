@@ -621,3 +621,7 @@ sudo rm -rf /var/lib/libvirt/images/mattx-base/
 
 
 All bugs produced by CLAUDE.
+
+## CI
+
+Forgejo CI, how to trigger runs and how to read them: [docs/ci.md](docs/ci.md).
