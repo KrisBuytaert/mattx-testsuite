@@ -137,7 +137,12 @@ HTML_PAGE_TEMPLATE = """<!DOCTYPE html>
   .controls { margin-bottom: 1em; display: flex; gap: 2em; align-items: flex-start; flex-wrap: wrap; }
   .controls fieldset { border: 1px solid #ccc; border-radius: 6px; padding: 0.4em 1em; }
   .controls legend { font-size: 0.85em; color: #555; padding: 0 0.4em; }
-  .controls label { display: block; font-size: 0.9em; margin: 2px 0; white-space: nowrap; }
+  .controls label { font-size: 0.9em; white-space: nowrap; }
+  .controls .opt { display: flex; gap: 0.6em; align-items: baseline; margin: 2px 0; }
+  .controls .bulk { margin: 0 0 4px 0; font-size: 0.8em; }
+  .controls .bulk button { font-size: 0.95em; padding: 1px 8px; cursor: pointer; }
+  .controls a.only { font-size: 0.75em; color: #06c; text-decoration: none; cursor: pointer; }
+  .controls a.only:hover { text-decoration: underline; }
   #search { padding: 4px 8px; font-size: 0.9em; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 0.9em; }
@@ -154,13 +159,15 @@ HTML_PAGE_TEMPLATE = """<!DOCTYPE html>
 <div class="controls">
   <fieldset>
     <legend>Run type</legend>
+    <div class="bulk"><button type="button" data-group="label" data-action="all">All</button> <button type="button" data-group="label" data-action="none">None</button></div>
     __LABEL_CHECKBOXES__
   </fieldset>
   <fieldset>
     <legend>Result</legend>
-    <label><input type="checkbox" class="status-filter" value="pass" checked> Pass</label>
-    <label><input type="checkbox" class="status-filter" value="fail" checked> Fail</label>
-    <label><input type="checkbox" class="status-filter" value="incomplete" checked> Incomplete</label>
+    <div class="bulk"><button type="button" data-group="status" data-action="all">All</button> <button type="button" data-group="status" data-action="none">None</button></div>
+    <div class="opt"><label><input type="checkbox" class="status-filter" value="pass" checked> Pass</label> <a class="only" data-group="status">only</a></div>
+    <div class="opt"><label><input type="checkbox" class="status-filter" value="fail" checked> Fail</label> <a class="only" data-group="status">only</a></div>
+    <div class="opt"><label><input type="checkbox" class="status-filter" value="incomplete" checked> Incomplete</label> <a class="only" data-group="status">only</a></div>
   </fieldset>
   <fieldset>
     <legend>Search (kernel / commit)</legend>
@@ -246,6 +253,26 @@ __ROWS__
   });
   document.getElementById('search').addEventListener('input', applyFilters);
 
+  // All / None buttons, and an "only" link next to each option: tick just that one.
+  function groupBoxes(group) {
+    return Array.prototype.slice.call(document.querySelectorAll('.' + group + '-filter'));
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.bulk button'), function(btn) {
+    btn.addEventListener('click', function() {
+      var on = btn.getAttribute('data-action') === 'all';
+      groupBoxes(btn.getAttribute('data-group')).forEach(function(cb) { cb.checked = on; });
+      applyFilters();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('a.only'), function(a) {
+    a.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      var mine = a.parentNode.querySelector('input');
+      groupBoxes(a.getAttribute('data-group')).forEach(function(cb) { cb.checked = (cb === mine); });
+      applyFilters();
+    });
+  });
+
   applyFilters();
 })();
 </script>
@@ -285,7 +312,7 @@ def render_html(reports):
         )
 
     label_checkboxes = "\n    ".join(
-        f'<label><input type="checkbox" class="label-filter" value="{escape(l)}" checked> {escape(l)}</label>'
+        f'<div class="opt"><label><input type="checkbox" class="label-filter" value="{escape(l)}" checked> {escape(l)}</label> <a class="only" data-group="label">only</a></div>'
         for l in labels
     )
 
