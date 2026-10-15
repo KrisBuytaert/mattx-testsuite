@@ -297,7 +297,7 @@ is_actually_running() {
 # the time auto_report_wrap() runs -- see its case statement.
 print_version_banner() {
     echo "=============================="
-    echo "mattx commit: $(run_on "$NODE1" "cd ~/mattx && git rev-parse HEAD 2>/dev/null" || echo "unknown")"
+    echo "mattx commit: $(run_on "$NODE1" "cat ~/mattx/.mattx-commit 2>/dev/null || (cd ~/mattx && git rev-parse HEAD 2>/dev/null)" || echo "unknown")"
     echo "$NODE1 kernel: $(run_on "$NODE1" "uname -r" 2>/dev/null || echo "unknown")"
     if [ -n "${NODE2:-}" ]; then
         echo "$NODE2 kernel: $(run_on "$NODE2" "uname -r" 2>/dev/null || echo "unknown")"

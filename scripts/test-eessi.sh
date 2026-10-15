@@ -10,6 +10,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
 
+# NODE1/NODE2 must be in scope for the report's version banner (as in the
+# other test-*.sh scripts).
+case "$DISTRO" in
+    alma) NODE1="almanode1"; NODE2="almanode2" ;;
+    deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
+    ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+esac
+
 auto_report_wrap "eessi-full" "$@"
 
 init_cluster "$DISTRO"

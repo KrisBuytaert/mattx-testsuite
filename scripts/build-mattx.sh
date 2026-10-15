@@ -19,6 +19,11 @@ init_cluster "$DISTRO"
 echo "[build] syncing MattX source to $NODE1..."
 run_on "$NODE1" "mkdir -p ~/mattx"
 rsync_to "$MATTX_SRC" "$NODE1" "~/mattx/"
+# Stamp the host-side commit: the synced .git is unusable on the node when
+# MATTX_SRC is a git worktree (its .git file points at a host-only path).
+STAMP_COMMIT="$(git -C "$MATTX_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+[ -n "$(git -C "$MATTX_SRC" status --porcelain 2>/dev/null)" ] && STAMP_COMMIT="$STAMP_COMMIT-dirty"
+run_on "$NODE1" "echo $STAMP_COMMIT > ~/mattx/.mattx-commit"
 
 echo "[build] building on $NODE1..."
 run_on "$NODE1" "cd ~/mattx && make"
