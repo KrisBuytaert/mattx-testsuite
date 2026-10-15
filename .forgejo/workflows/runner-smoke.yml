@@ -1,5 +1,7 @@
 # Read-only smoke test of the mattx-host runner: who it runs as, whether it can
-# reach libvirt, and what the harness would find. Changes nothing.
+# reach libvirt, and what the harness would find. Changes nothing. Output goes
+# to /tmp/mattx-runner-smoke.log (world-readable) so it can be read without
+# access to the Forgejo job logs.
 name: runner-smoke
 on: workflow_dispatch
 
@@ -7,20 +9,24 @@ jobs:
   smoke:
     runs-on: mattx-host
     steps:
-      - name: identity
-        run: id; hostname; echo "HOME=$HOME PWD=$PWD"
-      - name: libvirt
-        run: virsh -c qemu:///system list --all
-      - name: libvirt networks
-        run: virsh -c qemu:///system net-list --all
-      - name: tools the harness needs
+      - name: probe
+        shell: bash
         run: |
-          for c in virsh virt-install qemu-img rsync ssh curl make git python3; do
-            printf '%s -> ' "$c"; command -v "$c" || echo MISSING
-          done
-      - name: harness inputs
-        run: |
-          echo "PAGES_KEY=${PAGES_KEY:-unset}"; [ -n "${PAGES_KEY:-}" ] && ls -l "$PAGES_KEY" | cut -c1-10,30-
-          echo "MATTX_KEY=${MATTX_KEY:-unset}"
-          ls -ld /var/lib/libvirt/images 2>&1 | head -1
-          ls -l keys 2>&1 | head -3
+          out=/tmp/mattx-runner-smoke.log
+          {
+            echo "== identity"; id; hostname; echo "HOME=$HOME PWD=$PWD"
+            echo "== libvirt domains"; virsh -c qemu:///system list --all 2>&1
+            echo "== libvirt networks"; virsh -c qemu:///system net-list --all 2>&1
+            echo "== tools"
+            for c in virsh virt-install qemu-img rsync ssh curl make git python3; do
+              printf '%s -> ' "$c"; command -v "$c" || echo MISSING
+            done
+            echo "== harness inputs"
+            echo "PAGES_KEY=${PAGES_KEY:-unset}"
+            [ -n "${PAGES_KEY:-}" ] && ls -l "$PAGES_KEY" 2>&1
+            echo "MATTX_KEY=${MATTX_KEY:-unset}"
+            ls -ld /var/lib/libvirt/images 2>&1
+            ls -l keys 2>&1 | head -3
+          } > "$out" 2>&1
+          chmod 644 "$out"
+          cat "$out"
