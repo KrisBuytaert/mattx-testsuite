@@ -1,0 +1,52 @@
+# Full MattX regression run on the libvirt host, dispatched by
+# ci/poll-and-dispatch.sh when a new mattx or testsuite commit appears.
+# Needs a runner with the `mattx-host` label (host executor, libvirt group).
+name: mattx-ci
+on:
+  workflow_dispatch:
+    inputs:
+      mattx_sha:
+        description: "mattx commit to test (default: 1.9-dev tip)"
+        required: false
+        default: ""
+
+concurrency:
+  group: mattx-cluster
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: mattx-host
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch mattx source at the requested commit
+        run: |
+          rm -rf "$RUNNER_TEMP/mattx" && git clone -q https://github.com/brainmatt/mattx "$RUNNER_TEMP/mattx"
+          git -C "$RUNNER_TEMP/mattx" checkout -q "${{ inputs.mattx_sha || '1.9-dev' }}"
+          echo "MATTX_SRC=$RUNNER_TEMP/mattx/" >> "$GITHUB_ENV"
+      - name: Build and deploy
+        run: make upgrade-alma3
+      - name: Functional suites
+        continue-on-error: true
+        run: make test-alma test-dsm-alma test-stale-link-alma test-dsm-mesi3-alma
+      - name: EESSI suites
+        continue-on-error: true
+        run: make test-eessi-alma
+      - name: Fetch crash dumps
+        if: always()
+        run: scripts/fetch-crash-dump.sh || true
+      - name: Publish reports
+        if: always()
+        run: scripts/publish-pages.sh
+      - name: Record tested pair
+        if: always()
+        run: |
+          m=$(git -C "$RUNNER_TEMP/mattx" rev-parse HEAD)
+          install -d /var/lib/mattx-ci
+          echo "$m $(git rev-parse HEAD)" > /var/lib/mattx-ci/last-tested
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: reports
+          path: reports/*.txt
