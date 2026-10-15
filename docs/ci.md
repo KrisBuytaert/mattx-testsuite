@@ -157,8 +157,11 @@ curl -s -H "$T" "$B/actions/tasks?limit=5"
 ```
 
 * Web UI: `https://forgejo.lab.kribu.be/vox/mattx-testsuite/actions/runs/<n>`
-  (full step logs; **the API cannot return job logs** and the log files under
-  `/var/lib/forgejo/data` are not readable by a normal user).
+  (full step logs).
+* Job logs via the API: list the jobs of a run, then fetch one job's log as text.
+  Note these use the **run id** (`id` in `/actions/runs`), not the UI number:
+  `GET $B/actions/runs/<run id>/jobs` then `GET $B/actions/jobs/<job id>/logs`
+  (`GET $B/actions/runs/<run id>/logs` returns all jobs as a zip).
 * Runner log: `journalctl -u forgejo-runner-mattx -f`.
 * Results: the published page, and the raw files in
   `/var/lib/forgejo-runner-mattx/harness/reports/` (root only). The page table
@@ -166,6 +169,17 @@ curl -s -H "$T" "$B/actions/tasks?limit=5"
 * Status values: `waiting` (queued or blocked by `mattx-cluster`), `running`,
   `success`, `failure`, `cancelled`, `skipped`. `success` only means the
   infrastructure steps worked; read the reports for test results.
+
+### Notifications (Telegram)
+
+Forgejo itself sends a Telegram message when a run fails and when it recovers: a
+`telegram` webhook on `vox/mattx-testsuite` (events `action_run_failure`,
+`action_run_recover`), managed in `/home/src/tofu-forgejo/webhooks.tf`; the bot
+token comes from that repo's `.env` (`TF_VAR_telegram_bot_token`). Because
+Forgejo fires it, it still reports when the runner is down or a run is
+cancelled. Reminder: "failure" means an infrastructure step failed (sync,
+build/deploy, hung node); failing *tests* do not fail a run. To test the
+webhook, dispatch `notify-test.yml` with `outcome` `fail` or `pass`.
 
 ## 6. Troubleshooting
 
@@ -208,6 +222,8 @@ three nodes with the harness key, GitHub access with the Pages key).
 
 * No known-failures gate: runs are green even when targets fail.
 * The poller timer/env/token are not deployed.
+* Deploys crash a node: `start-mattx.sh` does `rmmod mattx` first, which oopses
+  (upstream issue #36); the node reboots and the run may wedge or fail.
 * The report banner does not record the mattx **branch**, only the commit.
 * New reports are published to Pages but not yet pushed to
   `vox/mattx-testsuite-reports`.
