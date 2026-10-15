@@ -68,7 +68,7 @@ jobs:
 
       - name: Fetch crash dumps
         if: always()
-        run: cd "$H" && scripts/fetch-crash-dump.sh || true
+        run: cd "$H" && for n in 1 2 3; do scripts/fetch-crash-dump.sh alma $n || true; done
 
       - name: Publish reports (functional)
         if: always()
@@ -89,7 +89,7 @@ jobs:
 
       - name: Fetch crash dumps
         if: always()
-        run: cd "$H" && scripts/fetch-crash-dump.sh || true
+        run: cd "$H" && for n in 1 2 3; do scripts/fetch-crash-dump.sh alma $n || true; done
 
       - name: Publish reports (eessi)
         if: always()
@@ -103,4 +103,7 @@ jobs:
       - name: Record tested pair
         run: |
           H=/var/lib/forgejo-runner-mattx/harness
-          echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested.${{ inputs.mattx_ref || '1.9-dev' }}"
+          b="${{ inputs.mattx_ref || '1.9-dev' }}"
+          echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested.$b"
+          # Always recorded (so a broken deploy is not retried every poll); the result is kept alongside.
+          echo "functional=${{ needs.functional.result }} eessi=${{ needs.eessi.result }}" > "$HOME/last-result.$b"
