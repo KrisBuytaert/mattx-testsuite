@@ -14,8 +14,12 @@ name: mattx-ci
 on:
   workflow_dispatch:
     inputs:
+      mattx_ref:
+        description: "mattx branch to test (1.9-dev or main)"
+        required: false
+        default: "1.9-dev"
       mattx_sha:
-        description: "mattx commit to test (default: 1.9-dev tip)"
+        description: "exact mattx commit (overrides mattx_ref)"
         required: false
         default: ""
       run_eessi:
@@ -50,7 +54,9 @@ jobs:
           S="$HOME/mattx-src"
           [ -d "$S/.git" ] || git clone -q https://github.com/brainmatt/mattx "$S"
           git -C "$S" fetch -q --all --prune
-          git -C "$S" checkout -q --force "${{ inputs.mattx_sha || 'origin/1.9-dev' }}"
+          ref="${{ inputs.mattx_sha }}"
+          [ -n "$ref" ] || ref="origin/${{ inputs.mattx_ref || '1.9-dev' }}"
+          git -C "$S" checkout -q --force "$ref"
           git -C "$S" log --oneline -1
 
       - name: Build and deploy to the nodes
@@ -97,4 +103,4 @@ jobs:
       - name: Record tested pair
         run: |
           H=/var/lib/forgejo-runner-mattx/harness
-          echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested"
+          echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested.${{ inputs.mattx_ref || '1.9-dev' }}"
