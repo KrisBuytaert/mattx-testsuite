@@ -9,7 +9,7 @@
 #   FORGEJO_TOKEN  token allowed to dispatch workflows on vox/mattx-testsuite
 #   FORGEJO_CA     CA bundle for the self-signed instance (optional)
 set -euo pipefail
-STATE="${STATE:-/var/lib/mattx-ci/last-tested}"
+STATE="${STATE:-$HOME/last-tested}"   # written by the workflow; run this as forgejo-runner-mattx
 MATTX_URL="${MATTX_URL:-https://github.com/brainmatt/mattx}"
 MATTX_REF="${MATTX_REF:-refs/heads/1.9-dev}"
 TEST_URL="${TEST_URL:-https://github.com/KrisBuytaert/mattx-testsuite}"

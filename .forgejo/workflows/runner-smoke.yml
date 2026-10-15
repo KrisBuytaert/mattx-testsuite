@@ -26,7 +26,7 @@ jobs:
             [ -n "${PAGES_KEY:-}" ] && ls -l "$PAGES_KEY" 2>&1
             echo "MATTX_KEY=${MATTX_KEY:-unset}"
             ls -ld /var/lib/libvirt/images 2>&1
-            ls -l keys 2>&1 | head -3
+            ls -l keys 2>&1 | head -3 || true
           } > "$out" 2>&1
           chmod 644 "$out"
           cat "$out"

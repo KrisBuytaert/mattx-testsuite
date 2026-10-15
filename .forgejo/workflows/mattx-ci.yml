@@ -1,6 +1,11 @@
 # Full MattX regression run on the libvirt host, dispatched by
 # ci/poll-and-dispatch.sh when a new mattx or testsuite commit appears.
-# Needs a runner with the `mattx-host` label (host executor, libvirt group).
+# Runs on the host-executor runner (label mattx-host, user forgejo-runner-mattx).
+#
+# Persistent state lives under $HOME/harness (= /var/lib/forgejo-runner-mattx/harness),
+# NOT in the job workspace: .stamp/ (which VMs/networks exist), keys/ (the VM ssh
+# key), reports/ (the full report history the published page is built from) and
+# crash-dumps/. The workspace checkout is rsynced over the code only.
 name: mattx-ci
 on:
   workflow_dispatch:
@@ -18,35 +23,47 @@ jobs:
   test:
     runs-on: mattx-host
     timeout-minutes: 240
+    env:
+      H: /var/lib/forgejo-runner-mattx/harness
+      PAGES_KEY: /var/lib/forgejo-runner-mattx/pages_deploy
     steps:
       - uses: actions/checkout@v4
+
+      - name: Sync harness code into the persistent directory
+        run: |
+          [ -f "$H/keys/mattx_test" ] || { echo "harness not provisioned: $H/keys/mattx_test missing" >&2; exit 1; }
+          [ -d "$H/.stamp" ] || { echo "harness not provisioned: $H/.stamp missing (seed it from the existing VMs)" >&2; exit 1; }
+          rsync -a --delete --exclude=.git --exclude=.stamp --exclude=keys --exclude=reports --exclude=crash-dumps ./ "$H/"
+          mkdir -p "$H/reports" "$H/crash-dumps"
+          git rev-parse HEAD > "$H/.testsuite-sha"
+
       - name: Fetch mattx source at the requested commit
         run: |
-          rm -rf "$RUNNER_TEMP/mattx" && git clone -q https://github.com/brainmatt/mattx "$RUNNER_TEMP/mattx"
-          git -C "$RUNNER_TEMP/mattx" checkout -q "${{ inputs.mattx_sha || '1.9-dev' }}"
-          echo "MATTX_SRC=$RUNNER_TEMP/mattx/" >> "$GITHUB_ENV"
-      - name: Build and deploy
-        run: make upgrade-alma3
+          S="$HOME/mattx-src"
+          [ -d "$S/.git" ] || git clone -q https://github.com/brainmatt/mattx "$S"
+          git -C "$S" fetch -q --all --prune
+          git -C "$S" checkout -q --force "${{ inputs.mattx_sha || 'origin/1.9-dev' }}"
+          git -C "$S" log --oneline -1
+
+      - name: Build and deploy to the nodes
+        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
+
       - name: Functional suites
         continue-on-error: true
-        run: make test-alma test-dsm-alma test-stale-link-alma test-dsm-mesi3-alma
+        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-alma test-dsm-alma test-stale-link-alma test-dsm-mesi3-alma
+
       - name: EESSI suites
         continue-on-error: true
-        run: make test-eessi-alma
+        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-eessi-alma
+
       - name: Fetch crash dumps
         if: always()
-        run: scripts/fetch-crash-dump.sh || true
+        run: cd "$H" && scripts/fetch-crash-dump.sh || true
+
       - name: Publish reports
         if: always()
-        run: scripts/publish-pages.sh
+        run: cd "$H" && scripts/publish-pages.sh
+
       - name: Record tested pair
         if: always()
-        run: |
-          m=$(git -C "$RUNNER_TEMP/mattx" rev-parse HEAD)
-          install -d /var/lib/mattx-ci
-          echo "$m $(git rev-parse HEAD)" > /var/lib/mattx-ci/last-tested
-      - uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: reports
-          path: reports/*.txt
+        run: echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested"
