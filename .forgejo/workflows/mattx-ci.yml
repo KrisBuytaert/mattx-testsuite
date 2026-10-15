@@ -69,7 +69,7 @@ jobs:
 
       - name: Fetch crash dumps
         if: always()
-        run: cd "$H" && for n in 1 2 3; do scripts/fetch-crash-dump.sh alma $n || true; done
+        run: cd "$H" && for n in 1 2 3; do DUMP_MODE=dmesg KEEP_ON_NODE=3 scripts/fetch-crash-dump.sh alma $n || true; done
 
       - name: Publish reports (functional)
         if: always()
@@ -90,7 +90,7 @@ jobs:
 
       - name: Fetch crash dumps
         if: always()
-        run: cd "$H" && for n in 1 2 3; do scripts/fetch-crash-dump.sh alma $n || true; done
+        run: cd "$H" && for n in 1 2 3; do DUMP_MODE=dmesg KEEP_ON_NODE=3 scripts/fetch-crash-dump.sh alma $n || true; done
 
       - name: Publish reports (eessi)
         if: always()

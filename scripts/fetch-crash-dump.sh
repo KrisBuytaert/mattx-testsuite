@@ -33,14 +33,35 @@ if [ -z "$DUMPS" ]; then
 fi
 echo "$DUMPS"
 
-OUT_DIR="$SCRIPT_DIR/../crash-dumps/${NODE}-$(date +%Y%m%d-%H%M%S)"
+# DUMP_MODE=full (default): copy everything, into a fresh timestamped directory.
+# DUMP_MODE=dmesg (CI): copy only each dump's vmcore-dmesg.txt into one stable
+#   per-node directory (incremental, so repeated runs do not re-copy), and, if
+#   KEEP_ON_NODE=N is set, prune all but the newest N dump directories on the
+#   node afterwards. A MattX deploy currently crashes every node once (upstream
+#   #36), so full vmcores (200-500 MB each) would otherwise fill the VM disks.
+DUMP_MODE="${DUMP_MODE:-full}"
+if [ "$DUMP_MODE" = dmesg ]; then
+    OUT_DIR="$SCRIPT_DIR/../crash-dumps/${NODE}"
+else
+    OUT_DIR="$SCRIPT_DIR/../crash-dumps/${NODE}-$(date +%Y%m%d-%H%M%S)"
+fi
 mkdir -p "$OUT_DIR"
 echo ""
 echo "Fetching into $OUT_DIR ..."
 # vmcore files are root-owned, 0600 by default -- rsync runs as the
 # unprivileged mattx ssh user, so open them up enough to read first.
 run_on "$NODE" "sudo chmod -R a+rX /var/crash"
-rsync_from "$NODE" "/var/crash/" "$OUT_DIR/"
+if [ "$DUMP_MODE" = dmesg ]; then
+    # shellcheck disable=SC2086
+    rsync -az --include='*/' --include='vmcore-dmesg.txt' --exclude='*' \
+        -e "ssh $SSH_OPTS" "$SSH_USER@$(node_ip "$NODE"):/var/crash/" "$OUT_DIR/"
+    if [ -n "${KEEP_ON_NODE:-}" ]; then
+        run_on "$NODE" "ls -dt /var/crash/*/ 2>/dev/null | tail -n +$((KEEP_ON_NODE+1)) | xargs -r sudo rm -rf"
+        echo "pruned $NODE:/var/crash to the newest $KEEP_ON_NODE dumps"
+    fi
+else
+    rsync_from "$NODE" "/var/crash/" "$OUT_DIR/"
+fi
 
 echo ""
 echo "Done. Each subdirectory has a vmcore (raw kernel memory dump) and a"
