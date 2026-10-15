@@ -14,7 +14,10 @@ jobs:
       - name: libvirt networks
         run: virsh -c qemu:///system net-list --all
       - name: tools the harness needs
-        run: for c in virsh virt-install qemu-img rsync ssh curl make git python3; do printf '%s: ' $c; command -v $c || echo MISSING; done
+        run: |
+          for c in virsh virt-install qemu-img rsync ssh curl make git python3; do
+            printf '%s -> ' "$c"; command -v "$c" || echo MISSING
+          done
       - name: harness inputs
         run: |
           echo "PAGES_KEY=${PAGES_KEY:-unset}"; [ -n "${PAGES_KEY:-}" ] && ls -l "$PAGES_KEY" | cut -c1-10,30-
