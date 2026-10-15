@@ -1,0 +1,16 @@
+# Deliberately fails (or passes) so the Telegram webhook can be tested end to end.
+name: notify-test
+on:
+  workflow_dispatch:
+    inputs:
+      outcome:
+        description: "fail or pass"
+        default: "fail"
+
+jobs:
+  t:
+    runs-on: mattx-host
+    steps:
+      - run: |
+          echo "outcome=${{ inputs.outcome }}"
+          [ "${{ inputs.outcome }}" = pass ]
