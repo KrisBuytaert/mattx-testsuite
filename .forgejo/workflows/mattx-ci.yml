@@ -9,7 +9,8 @@
 #
 # Jobs, in order: `functional` (build + deploy + fast suites, published as soon as it
 # finishes), `gate`, then `eessi` (the long EESSI application suites, published again).
-# The gate lets the long suites run only if functional succeeded and neither mattx nor
+# The gate lets the long suites run only if functional succeeded, every fast suite
+# passed, and neither mattx nor
 # the testsuite has a newer commit than the one tested: a busy branch gets the fast
 # suites per push, and the long ones once it has been quiet (see the poller's
 # QUIET_HOURS). `record` always runs last so the poller does not retrigger a run that
@@ -94,11 +95,21 @@ jobs:
           if [ "${{ inputs.run_eessi }}" = false ]; then reason=disabled
           elif [ "${{ needs.functional.result }}" != success ]; then reason=functional-failed
           else
+            # test steps never fail the job, so read this run's reports: any suite with
+            # failures (or no Results line = incomplete) holds the long suites back
+            bad=0
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              res=$(grep -E 'Results:' "$f" | tail -1)
+              n=$(echo "$res" | sed -nE 's/.*, ([0-9]+) failed.*/\1/p')
+              if [ -z "$res" ] || [ "${n:-0}" -gt 0 ]; then echo "failing: $(basename "$f"): ${res:-no result line}"; bad=$((bad+1)); fi
+            done < <(find "$H/reports" -name '*-alma-*.txt' -newer "$H/.run-start" | sort)
             tested=$(git -C "$HOME/mattx-src" rev-parse HEAD)
             tip=$(git ls-remote https://github.com/brainmatt/mattx "refs/heads/$b" | cut -f1)
             tests=$(git ls-remote https://github.com/KrisBuytaert/mattx-testsuite refs/heads/master | cut -f1)
             # a pinned mattx_sha is a deliberate one-off: only the testsuite tip is checked
-            if [ -z "${{ inputs.mattx_sha }}" ] && [ -n "$tip" ] && [ "$tip" != "$tested" ]; then reason=moved
+            if [ "$bad" -gt 0 ]; then reason=tests-failed
+            elif [ -z "${{ inputs.mattx_sha }}" ] && [ -n "$tip" ] && [ "$tip" != "$tested" ]; then reason=moved
             elif [ -n "$tests" ] && [ "$tests" != "$(cat "$H/.testsuite-sha")" ]; then reason=moved
             fi
           fi

@@ -30,9 +30,10 @@ Workflow `mattx-ci` (`.forgejo/workflows/mattx-ci.yml`), three jobs in order:
    nodes), then `make -k test-alma test-dsm-alma test-stale-link-alma
    test-dsm-mesi3-alma`, fetch kdump crash dumps, **publish** the reports.
 2. **gate**: decides whether the long suites run (`reason` output). `ok` only if
-   `functional` succeeded **and** neither the mattx branch tip nor testsuite
+   `functional` succeeded, **every fast suite passed** (no `failed` count above 0, no
+   missing Results line, read from this run's reports) **and** neither the mattx branch tip nor testsuite
    master has moved since the run started. Otherwise `moved`,
-   `functional-failed` or `disabled` (`run_eessi=false`). A pinned `mattx_sha`
+   `tests-failed`, `functional-failed` or `disabled` (`run_eessi=false`). A pinned `mattx_sha`
    ignores mattx moving.
 3. **eessi**: runs only when the gate says `ok`. `make -k test-eessi-alma` (the
    long EESSI application suites: gromacs, pytorch, mpi, ...), crash dumps,
