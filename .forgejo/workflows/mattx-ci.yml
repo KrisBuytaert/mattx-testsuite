@@ -125,6 +125,16 @@ jobs:
       H: /var/lib/forgejo-runner-mattx/harness
       PAGES_KEY: /var/lib/forgejo-runner-mattx/pages_deploy
     steps:
+      - name: Fetch the upstream eessi-demo (the tests rsync demo scripts from $H/eessi-demo)
+        run: |
+          S="$HOME/eessi-demo-src"
+          [ -d "$S/.git" ] || git clone -q https://github.com/EESSI/eessi-demo "$S"
+          git -C "$S" fetch -q origin
+          git -C "$S" checkout -q --force origin/HEAD
+          git -C "$S" log --oneline -1
+          # the harness sync (rsync --delete) removes this link every run, so recreate it
+          ln -sfn "$S" "$H/eessi-demo"
+
       - name: EESSI suites
         continue-on-error: true
         run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-eessi-alma

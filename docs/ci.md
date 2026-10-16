@@ -35,7 +35,10 @@ Workflow `mattx-ci` (`.forgejo/workflows/mattx-ci.yml`), three jobs in order:
    master has moved since the run started. Otherwise `moved`,
    `tests-failed`, `functional-failed` or `disabled` (`run_eessi=false`). A pinned `mattx_sha`
    ignores mattx moving.
-3. **eessi**: runs only when the gate says `ok`. `make -k test-eessi-alma` (the
+3. **eessi**: runs only when the gate says `ok`. First clones/updates the **upstream**
+   `github.com/EESSI/eessi-demo` into `~forgejo-runner-mattx/eessi-demo-src` and links it
+   as `$H/eessi-demo` (locally `eessi-demo` is a gitignored symlink to a personal fork,
+   which CI cannot see). `make -k test-eessi-alma` (the
    long EESSI application suites: gromacs, pytorch, mpi, ...), crash dumps,
    publish again.
 4. **record**: always runs last. Writes the tested pair
