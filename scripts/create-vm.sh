@@ -10,8 +10,9 @@ NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"   # also sets KEYS_DIR
 NETWORK_HOST_IP="192.168.100.1"   # must match ensure-libvirt-network.sh's HOST_IP
-BASE_CACHE="/var/lib/libvirt/images/mattx-base-sdog"   # survives make clean
-IMAGES_DIR="/var/lib/libvirt/images/mattx-test-sdog"   # per-VM disks, wiped on clean
+IMAGES_ROOT="${MATTX_IMAGES_ROOT:-/opt/libvirt-images}"   # not / : the overlays grow to several GB each
+BASE_CACHE="$IMAGES_ROOT/mattx-base-sdog"   # survives make clean
+IMAGES_DIR="$IMAGES_ROOT/mattx-test-sdog"   # per-VM disks, wiped on clean
 
 case "$DISTRO" in
     alma)
@@ -163,7 +164,7 @@ virt-install \
     --name        "$VM_NAME" \
     --memory      2048 \
     --vcpus       2 \
-    --disk        "path=$VM_DISK,format=qcow2,bus=virtio" \
+    --disk        "path=$VM_DISK,format=qcow2,bus=virtio,discard=unmap" \
     --disk        "path=$SEED_ISO,device=cdrom,readonly=on" \
     --import \
     --os-variant  "$OS_VARIANT" \

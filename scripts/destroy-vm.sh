@@ -4,7 +4,7 @@ set -euo pipefail
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
 VM_NAME="${1:?Usage: $0 <vm-name>}"
-IMAGES_DIR="/var/lib/libvirt/images/mattx-test-sdog"
+IMAGES_DIR="${MATTX_IMAGES_ROOT:-/opt/libvirt-images}/mattx-test-sdog"
 
 virsh destroy  "$VM_NAME" 2>/dev/null || true
 virsh undefine "$VM_NAME" --remove-all-storage 2>/dev/null || true

@@ -2,6 +2,9 @@ export LIBVIRT_DEFAULT_URI := qemu:///system
 SCRIPTS  := scripts
 STAMP    := .stamp
 KEYS_DIR := keys
+# where the VM disks live (not / : the overlays grow to several GB each)
+IMAGES_ROOT ?= /opt/libvirt-images
+export MATTX_IMAGES_ROOT := $(IMAGES_ROOT)
 
 # Fixed IPs for reference
 # almanode1: 192.168.100.11   almanode2: 192.168.100.12   almanode3: 192.168.100.13 (chain-migration tests only)
@@ -100,10 +103,11 @@ setup:
 	else \
 	    echo "[setup] $(USER) already in libvirt group"; \
 	fi
-	@if ! test -w /var/lib/libvirt/images/; then \
-	    sudo setfacl -m u:$(USER):rwx /var/lib/libvirt/images/ 2>/dev/null || \
-	    sudo chmod g+rwx /var/lib/libvirt/images/; \
-	    echo "[setup] granted write access to /var/lib/libvirt/images/"; \
+	@test -d $(IMAGES_ROOT) || sudo install -d -m 2775 -g libvirt $(IMAGES_ROOT)
+	@if ! test -w $(IMAGES_ROOT)/; then \
+	    sudo setfacl -m u:$(USER):rwx $(IMAGES_ROOT)/ 2>/dev/null || \
+	    sudo chmod g+rwx $(IMAGES_ROOT)/; \
+	    echo "[setup] granted write access to $(IMAGES_ROOT)/"; \
 	fi
 	@echo "[setup] done"
 	@id -nG | tr ' ' '\n' | grep -qx libvirt || \
@@ -120,8 +124,8 @@ check:
 		{ echo "ERROR: need cloud-localds, genisoimage, or mkisofs"; exit 1; }
 	@id -nG | tr ' ' '\n' | grep -qx libvirt || \
 		{ echo "ERROR: $(USER) is not in the libvirt group — run: make setup"; exit 1; }
-	@test -w /var/lib/libvirt/images/ || \
-		{ echo "ERROR: cannot write to /var/lib/libvirt/images/ — run: make setup"; exit 1; }
+	@test -w $(IMAGES_ROOT)/ || \
+		{ echo "ERROR: cannot write to $(IMAGES_ROOT)/ — run: make setup"; exit 1; }
 
 keys: $(KEYS_DIR)/mattx_test
 
