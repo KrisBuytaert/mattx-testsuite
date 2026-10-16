@@ -43,7 +43,21 @@ if kill -0 "$pid" 2>/dev/null; then
     pkill -P "$pid" 2>/dev/null || true
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
-    echo "[start] $NODE did not finish unloading within ${UNLOAD_TIMEOUT}s (wedged umount/sync, upstream #31); hard-resetting the VM..."
+    echo "[start] $NODE did not finish unloading within ${UNLOAD_TIMEOUT}s (wedged umount/sync, upstream #31)"
+    # Evidence first: the hung-task detector only reports blocked tasks, not the one
+    # that is spinning, so ask the kernel for the stacks of umount/sync and a dump of
+    # all running (l) and blocked (w) tasks before the reset destroys the state.
+    HANG_OUT="$SCRIPT_DIR/../crash-dumps/$NODE-hang-$(date +%Y%m%d-%H%M%S).txt"
+    mkdir -p "$(dirname "$HANG_OUT")"
+    # shellcheck disable=SC2086
+    timeout 90 ssh $SSH_OPTS -o ConnectTimeout=10 "$SSH_USER@$(node_ip "$NODE")" 'sudo sh -c "
+        echo 1 > /proc/sys/kernel/sysrq
+        for p in \$(pgrep -x umount) \$(pgrep -x sync) \$(pgrep -x rmmod); do echo \"== pid \$p \$(cat /proc/\$p/comm) state \$(awk \"/State/{print \\\$2}\" /proc/\$p/status)\"; cat /proc/\$p/stack; done
+        echo l > /proc/sysrq-trigger; echo w > /proc/sysrq-trigger
+        sleep 1; dmesg | tail -400
+    "' > "$HANG_OUT" 2>&1 || true
+    echo "[start] hang evidence saved to $HANG_OUT"
+    echo "[start] hard-resetting the VM..."
     virsh reset "$NODE"
     rc=255
 else
