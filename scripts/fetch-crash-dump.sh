@@ -59,6 +59,10 @@ if [ "$DUMP_MODE" = dmesg ]; then
         run_on "$NODE" "ls -dt /var/crash/*/ 2>/dev/null | tail -n +$((KEEP_ON_NODE+1)) | xargs -r sudo rm -rf"
         echo "pruned $NODE:/var/crash to the newest $KEEP_ON_NODE dumps"
     fi
+    # Host side: CI wants only the dmesg text. Full vmcores that ended up in crash-dumps
+    # (from manual DUMP_MODE=full fetches) are deleted once older than VMCORE_KEEP_DAYS.
+    find "$SCRIPT_DIR/../crash-dumps" -type f -name vmcore -mtime "+${VMCORE_KEEP_DAYS:-2}" \
+        -printf 'removed old vmcore %p (%s bytes)\n' -delete 2>/dev/null || true
 else
     rsync_from "$NODE" "/var/crash/" "$OUT_DIR/"
 fi
