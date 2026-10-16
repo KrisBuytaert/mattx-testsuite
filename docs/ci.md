@@ -88,6 +88,7 @@ All triggers end up as a `workflow_dispatch` of `mattx-ci.yml` on `master`.
 | `mattx_ref` | `1.9-dev` | mattx branch to test (`1.9-dev` or `main`) |
 | `mattx_sha` | empty | exact mattx commit; overrides `mattx_ref` |
 | `run_eessi` | `true` | `false` = functional suites only |
+| `force_eessi` | `false` | `true` = run the long suites even if fast suites failed or a newer commit exists (still needs the functional job to succeed) |
 
 ### A. Web UI
 

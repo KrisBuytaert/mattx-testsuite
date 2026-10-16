@@ -166,13 +166,13 @@ if PITZDAILY_DIR=$(run_on "$NODE1" "
     module load ${OPENFOAM_MODULE}
     # OpenFOAM's own etc/bashrc hits a benign internal 'pop_var_context:
     # head of shell_variables not a function context' condition -- since
-    # `source` runs in this SAME shell (not a subshell), that one failing
-    # command trips `set -e` and aborts the whole block immediately, even
+    # source runs in this SAME shell (not a subshell), that one failing
+    # command trips set -e and aborts the whole block immediately, even
     # though WM_PROJECT_DIR etc. get set correctly before it happens.
-    # `2>/dev/null` alone only hides the warning text; it does NOT stop
+    # 2>/dev/null alone only hides the warning text; it does NOT stop
     # set -e from firing on a command that fails deep inside a sourced
-    # script, so `|| true` is required too (confirmed live: without it,
-    # `set -ex` tracing shows the script dies mid-`source`, before even
+    # script, so || true is required too (confirmed live: without it,
+    # set -ex tracing shows the script dies mid-source, before even
     # reaching the next line).
     source \$FOAM_BASH 2>/dev/null || true
     test -n \"\$WM_PROJECT_DIR\" || { echo 'WM_PROJECT_DIR not set after module load' >&2; exit 1; }

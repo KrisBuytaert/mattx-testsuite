@@ -31,6 +31,10 @@ on:
         description: "run the long EESSI suites after the functional ones (true/false)"
         required: false
         default: "true"
+      force_eessi:
+        description: "run the long suites even if fast suites failed or a newer commit exists (true/false)"
+        required: false
+        default: "false"
 
 concurrency:
   group: mattx-cluster
@@ -94,6 +98,7 @@ jobs:
           reason=ok
           if [ "${{ inputs.run_eessi }}" = false ]; then reason=disabled
           elif [ "${{ needs.functional.result }}" != success ]; then reason=functional-failed
+          elif [ "${{ inputs.force_eessi }}" = true ]; then reason=ok
           else
             # test steps never fail the job, so read this run's reports: any suite with
             # failures (or no Results line = incomplete) holds the long suites back
