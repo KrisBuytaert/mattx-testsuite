@@ -29,13 +29,28 @@ echo "[start] unloading MattX modules on $NODE..."
 # expected outcome of unloading a loaded module for now, not a deploy failure:
 # wait for the reboot. mattx.service loads the already-installed (new) modules
 # at boot, so nothing further needs unloading afterwards.
-run_on "$NODE" "sync"   # see the comment in build-mattx.sh: a crash must not lose config writes
-set +e
-run_on "$NODE" "sudo systemctl stop mattx 2>/dev/null; sudo umount /mattxfs 2>/dev/null; sudo rmmod mattxfs 2>/dev/null; sudo rmmod mattx 2>/dev/null; true"
-rc=$?
-set -e
+# sync first: a crash must not lose config writes (see the comment in build-mattx.sh).
+# The whole unload runs in the background under a watchdog: a wedged node
+# (umount /mattxfs spinning with busy inodes, upstream #31, which then blocks sync
+# and everything else on the superblock lock) never returns from ssh, and ServerAlive
+# keepalives do not help because the node still answers. Hard-reset it instead.
+UNLOAD_TIMEOUT="${UNLOAD_TIMEOUT:-180}"
+run_on "$NODE" "sync; sudo systemctl stop mattx 2>/dev/null; sudo umount /mattxfs 2>/dev/null; sudo rmmod mattxfs 2>/dev/null; sudo rmmod mattx 2>/dev/null; true" &
+pid=$!
+waited=0
+while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$UNLOAD_TIMEOUT" ]; do sleep 2; waited=$((waited+2)); done
+if kill -0 "$pid" 2>/dev/null; then
+    pkill -P "$pid" 2>/dev/null || true
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    echo "[start] $NODE did not finish unloading within ${UNLOAD_TIMEOUT}s (wedged umount/sync, upstream #31); hard-resetting the VM..."
+    virsh reset "$NODE"
+    rc=255
+else
+    set +e; wait "$pid"; rc=$?; set -e
+fi
 if [ "$rc" -eq 255 ]; then
-    echo "[start] $NODE dropped its ssh session while unloading (kernel crash on rmmod, upstream #36); waiting for it to reboot..."
+    echo "[start] $NODE dropped its ssh session while unloading (kernel crash on rmmod #36, or reset after a hang); waiting for it to reboot..."
     wait_for_ssh_down "$NODE"
     wait_for_ssh "$NODE"
 elif [ "$rc" -ne 0 ]; then
