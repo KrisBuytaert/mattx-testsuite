@@ -7,9 +7,13 @@
 # key), reports/ (the full report history the published page is built from) and
 # crash-dumps/. The workspace checkout is rsynced over the code only.
 #
-# Two jobs, in order: `functional` (build + deploy + fast suites, published as soon
-# as it finishes) then `eessi` (the long EESSI application suites, published again).
-# `record` always runs last so the poller does not retrigger a run that broke early.
+# Jobs, in order: `functional` (build + deploy + fast suites, published as soon as it
+# finishes), `gate`, then `eessi` (the long EESSI application suites, published again).
+# The gate lets the long suites run only if functional succeeded and neither mattx nor
+# the testsuite has a newer commit than the one tested: a busy branch gets the fast
+# suites per push, and the long ones once it has been quiet (see the poller's
+# QUIET_HOURS). `record` always runs last so the poller does not retrigger a run that
+# broke early.
 name: mattx-ci
 on:
   workflow_dispatch:
@@ -75,9 +79,35 @@ jobs:
         if: always()
         run: cd "$H" && scripts/publish-pages.sh
 
-  eessi:
+  gate:
     needs: functional
-    if: ${{ inputs.run_eessi != 'false' }}
+    if: always()
+    runs-on: mattx-host
+    outputs:
+      reason: ${{ steps.g.outputs.reason }}
+    steps:
+      - id: g
+        run: |
+          b="${{ inputs.mattx_ref || '1.9-dev' }}"
+          H=/var/lib/forgejo-runner-mattx/harness
+          reason=ok
+          if [ "${{ inputs.run_eessi }}" = false ]; then reason=disabled
+          elif [ "${{ needs.functional.result }}" != success ]; then reason=functional-failed
+          else
+            tested=$(git -C "$HOME/mattx-src" rev-parse HEAD)
+            tip=$(git ls-remote https://github.com/brainmatt/mattx "refs/heads/$b" | cut -f1)
+            tests=$(git ls-remote https://github.com/KrisBuytaert/mattx-testsuite refs/heads/master | cut -f1)
+            # a pinned mattx_sha is a deliberate one-off: only the testsuite tip is checked
+            if [ -z "${{ inputs.mattx_sha }}" ] && [ -n "$tip" ] && [ "$tip" != "$tested" ]; then reason=moved
+            elif [ -n "$tests" ] && [ "$tests" != "$(cat "$H/.testsuite-sha")" ]; then reason=moved
+            fi
+          fi
+          echo "gate: $reason"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+  eessi:
+    needs: gate
+    if: ${{ needs.gate.outputs.reason == 'ok' }}
     runs-on: mattx-host
     timeout-minutes: 240
     env:
@@ -97,7 +127,7 @@ jobs:
         run: cd "$H" && scripts/publish-pages.sh
 
   record:
-    needs: [functional, eessi]
+    needs: [functional, gate, eessi]
     if: always()
     runs-on: mattx-host
     steps:
@@ -107,10 +137,13 @@ jobs:
           b="${{ inputs.mattx_ref || '1.9-dev' }}"
           echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested.$b"
           # Always recorded (so a broken deploy is not retried every poll); the result is kept alongside.
-          echo "functional=${{ needs.functional.result }} eessi=${{ needs.eessi.result }}" > "$HOME/last-result.$b"
+          echo "functional=${{ needs.functional.result }} eessi=${{ needs.eessi.result }} gate=${{ needs.gate.outputs.reason }}" > "$HOME/last-result.$b"
+          # The long suites are "done" for this pair unless the gate held them back because
+          # something newer arrived; the poller reruns those once the branch is quiet.
+          if [ "${{ needs.gate.outputs.reason }}" != moved ]; then cp "$HOME/last-tested.$b" "$HOME/last-eessi.$b"; fi
 
   notify:
-    needs: [functional, eessi, record]
+    needs: [functional, gate, eessi, record]
     if: always()
     runs-on: mattx-host
     steps:

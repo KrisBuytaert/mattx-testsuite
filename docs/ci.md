@@ -29,12 +29,23 @@ Workflow `mattx-ci` (`.forgejo/workflows/mattx-ci.yml`), three jobs in order:
    the requested branch/commit, `make upgrade-alma3` (build + deploy to the
    nodes), then `make -k test-alma test-dsm-alma test-stale-link-alma
    test-dsm-mesi3-alma`, fetch kdump crash dumps, **publish** the reports.
-2. **eessi**: `make -k test-eessi-alma` (the long EESSI application suites:
-   gromacs, pytorch, mpi, ...), crash dumps, publish again. Skipped when the
-   `run_eessi` input is `false`.
-3. **record**: always runs last. Writes the tested pair
+2. **gate**: decides whether the long suites run (`reason` output). `ok` only if
+   `functional` succeeded **and** neither the mattx branch tip nor testsuite
+   master has moved since the run started. Otherwise `moved`,
+   `functional-failed` or `disabled` (`run_eessi=false`). A pinned `mattx_sha`
+   ignores mattx moving.
+3. **eessi**: runs only when the gate says `ok`. `make -k test-eessi-alma` (the
+   long EESSI application suites: gromacs, pytorch, mpi, ...), crash dumps,
+   publish again.
+4. **record**: always runs last. Writes the tested pair
    (`<mattx sha> <testsuite sha>`) to `~forgejo-runner-mattx/last-tested.<branch>`
-   so the poller does not retrigger a run that broke early.
+   so the poller does not retrigger a run that broke early, and the same pair to
+   `last-eessi.<branch>` unless the gate said `moved`.
+
+No avalanche: a busy branch gets the fast suites per push and no long run. When a
+pair is tested but its long suites are still owed (`last-eessi` differs) and the
+tip has been unchanged for `QUIET_HOURS` (default 6), the poller dispatches it
+again and, being quiet, the gate lets the long suites through.
 
 Test steps use `continue-on-error`, so **a failing test does not turn the run
 red**; the results are in the published reports. Only infrastructure steps
@@ -59,6 +70,8 @@ by the runner user):
 | `pages_deploy` | write-only deploy key for the GitHub Pages repo |
 | `mattx-src/` | clone of brainmatt/mattx used as `MATTX_SRC` |
 | `last-tested.<branch>` | poller state, one file per tracked branch |
+| `last-eessi.<branch>` | pair whose long suites are done (or deliberately not owed) |
+| `seen.<branch>` | `<mattx sha> <testsuite sha> <epoch first seen>`, for the quiet period |
 
 ## 3. Triggering a run
 
@@ -113,7 +126,7 @@ the workflow file on the Forgejo mirror is not valid YAML.
 `mattx_ref`. At most one dispatch per tick, and **none while any run is
 `running`/`waiting`**, so state recorded at the end of a run is never raced.
 Env: `FORGEJO_URL`, `FORGEJO_TOKEN` (and optionally `FORGEJO_CA`, `BRANCHES`,
-`STATE_DIR`). Dry run: `DRY_RUN=1 ci/poll-and-dispatch.sh` prints
+`STATE_DIR`, `QUIET_HOURS`). Dry run: `DRY_RUN=1 ci/poll-and-dispatch.sh` prints
 `would dispatch <branch> ...` or `run active, skipping` and sends nothing.
 
 **Status:** the script is tested with `DRY_RUN`; the **systemd timer, env file and
