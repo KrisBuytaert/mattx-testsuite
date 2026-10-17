@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-unload.sh <alma|deb|ubu>
-# Regression test for mattx#36: `rmmod mattx` (what `systemctl stop mattx` and every
+# Regression test for mattx#36 (and mattx#31, with /mattxfs populated before each unload): `rmmod mattx` (what `systemctl stop mattx` and every
 # redeploy do) used to oops in rethook_free() -> unregister_kretprobe() when one of the
 # hooks had failed to register (shmem_page_mkwrite does not exist on 6.12), taking the
 # node down and forcing a kdump reboot on every unload.
@@ -44,6 +44,9 @@ else
     for i in $(seq 1 "$CYCLES"); do
         echo ""
         echo "--- cycle $i ---"
+        # populate /mattxfs first: with live dentries under it, an unload used to hit
+        # "VFS: Busy inodes after unmount" / BUG at fs/super.c:650 or an endless umount (mattx#31)
+        rto 'for P in $(ls /mattxfs 2>/dev/null); do ls -la /mattxfs/$P/etc >/dev/null 2>&1; done; true' >/dev/null 2>&1 || true
         rc=0
         rto "sudo systemctl stop mattx 2>/dev/null; sudo umount /mattxfs 2>/dev/null; sudo rmmod mattxfs 2>/dev/null; sudo rmmod mattx 2>/dev/null; true" || rc=$?
         if [ "$rc" -eq 255 ] || [ "$rc" -eq 124 ]; then
