@@ -42,6 +42,17 @@ RESULTS_RE = re.compile(r"Results:\s*\d+\s*passed,\s*\d+\s*failed")
 NAME_RE = re.compile(r"^(?P<label>.+)-(?P<distro>alma|deb|ubu)-(?P<ts>\d{8}-\d{6})\.txt$")
 
 
+def commit_url(source, commit):
+    """GitHub URL of the commit in the repo the run was built from ("owner/repo@branch"), or None."""
+    if not source or not commit or "@" not in source:
+        return None
+    repo = source.split("@", 1)[0]
+    sha = commit.split("-", 1)[0]
+    if not re.fullmatch(r"[0-9a-f]{7,40}", sha) or not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
+        return None
+    return f"https://github.com/{repo}/commit/{sha}"
+
+
 def parse_report(path):
     commit = None
     source = None
@@ -129,6 +140,9 @@ def render_markdown(reports):
     for r in sorted(reports, key=sort_key):
         kernel = kernel_summary(r["kernels"])
         commit = (r["commit"] or "unknown")[:12]
+        _url = commit_url(r["source"], r["commit"])
+        if _url:
+            commit = f"[{commit}]({_url})"
         _kind, header, fails = test_summary(r["assertions"], r["completed"])
         result = f"{header} — FAIL: {'; '.join(fails)}" if fails else header
         out.append(f"| {kernel} | {commit} | {r['source'] or 'unknown'} | {r['label']} ({r['distro']}) | {r['date']} | {result} |")
@@ -300,6 +314,10 @@ def render_html(reports):
     for r in sorted(reports, key=sort_key):
         kernel = escape(kernel_summary(r["kernels"]))
         commit = escape((r["commit"] or "unknown")[:12])
+        commit_cell = commit
+        _url = commit_url(r["source"], r["commit"])
+        if _url:
+            commit_cell = f'<a href="{escape(_url)}">{commit}</a>'
         branch = escape(r["source"] or "unknown")
         label_raw = escape(r["label"])
         label_full = escape(f"{r['label']} ({r['distro']})")
@@ -318,7 +336,7 @@ def render_html(reports):
         rows.append(
             f'<tr data-kernel="{kernel}" data-commit="{commit}" data-branch="{branch}" data-label="{label_raw}" '
             f'data-date="{date}" data-status="{kind}" style="background:{bg}">'
-            f"<td>{kernel}</td><td>{commit}</td><td>{branch}</td><td>{label_full}</td><td>{date}</td>"
+            f"<td>{kernel}</td><td>{commit_cell}</td><td>{branch}</td><td>{label_full}</td><td>{date}</td>"
             f"<td>{result_html}</td></tr>"
         )
 
