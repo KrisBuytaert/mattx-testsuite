@@ -57,8 +57,19 @@ if kill -0 "$pid" 2>/dev/null; then
         sleep 1; dmesg | tail -400
     "' > "$HANG_OUT" 2>&1 || true
     echo "[start] hang evidence saved to $HANG_OUT"
-    echo "[start] hard-resetting the VM..."
-    virsh reset "$NODE"
+    # Prefer a kernel panic via sysrq-c: kdump then saves a vmcore of the wedged state
+    # (analysable with crash + kernel-debuginfo) and the node reboots itself. Fall back to
+    # a hard reset if the node is too wedged to take the sysrq or does not go down.
+    echo "[start] crashing $NODE with sysrq-c for a vmcore (kdump), hard-resetting if it does not go down..."
+    # shellcheck disable=SC2086
+    timeout 20 ssh $SSH_OPTS -o ConnectTimeout=10 "$SSH_USER@$(node_ip "$NODE")" 'echo c | sudo tee /proc/sysrq-trigger >/dev/null' >/dev/null 2>&1 || true
+    down=0
+    for _ in $(seq 1 30); do
+        # shellcheck disable=SC2086
+        timeout 8 ssh $SSH_OPTS -o ConnectTimeout=4 "$SSH_USER@$(node_ip "$NODE")" true >/dev/null 2>&1 || { down=1; break; }
+        sleep 3
+    done
+    [ "$down" = 1 ] || { echo "[start] $NODE still up, virsh reset"; virsh reset "$NODE"; }
     rc=255
 else
     set +e; wait "$pid"; rc=$?; set -e
