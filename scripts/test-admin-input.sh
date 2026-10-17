@@ -64,7 +64,7 @@ else
             BOOT_ID="$now"
             return 1
         fi
-        bad="$(rto "sudo dmesg | grep -cE 'Oops|BUG:'" 2>/dev/null || echo "?")"
+        bad="$(rto "sudo dmesg | grep -cE 'Oops|BUG:' || true" 2>/dev/null)"
         if [ "$bad" != 0 ]; then
             fail "$1: oops/BUG in dmesg on $NODE1 ($bad lines)"
             rto "sudo dmesg | grep -E -m3 'Oops|BUG:|RIP:'" 2>/dev/null | sed 's/^/    /' || true
