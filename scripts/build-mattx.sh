@@ -24,6 +24,14 @@ rsync_to "$MATTX_SRC" "$NODE1" "~/mattx/"
 STAMP_COMMIT="$(git -C "$MATTX_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 [ -n "$(git -C "$MATTX_SRC" status --porcelain 2>/dev/null)" ] && STAMP_COMMIT="$STAMP_COMMIT-dirty"
 run_on "$NODE1" "echo $STAMP_COMMIT > ~/mattx/.mattx-commit"
+# Where the tree came from, shown in the report banner and the results table. CI passes
+# MATTX_SOURCE=owner/repo@branch (a fork branch is not upstream 1.9-dev); otherwise
+# derive it from the checkout.
+if [ -z "${MATTX_SOURCE:-}" ]; then
+    _b="$(git -C "$MATTX_SRC" branch --show-current 2>/dev/null)"
+    MATTX_SOURCE="local@${_b:-detached}"
+fi
+run_on "$NODE1" "echo '$MATTX_SOURCE' > ~/mattx/.mattx-source"
 
 echo "[build] building on $NODE1..."
 run_on "$NODE1" "cd ~/mattx && make"

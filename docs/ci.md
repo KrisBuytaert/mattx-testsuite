@@ -28,7 +28,7 @@ Workflow `mattx-ci` (`.forgejo/workflows/mattx-ci.yml`), three jobs in order:
 1. **functional**: sync the harness into the persistent directory, fetch mattx at
    the requested branch/commit, `make upgrade-alma3` (build + deploy to the
    nodes), then `make -k test-alma test-dsm-alma test-stale-link-alma
-   test-dsm-mesi3-alma`, fetch kdump crash dumps, **publish** the reports.
+   test-dsm-mesi3-alma test-unload-alma`, fetch kdump crash dumps, **publish** the reports.
 2. **gate**: decides whether the long suites run (`reason` output). `ok` only if
    `functional` succeeded, **every fast suite passed** (no `failed` count above 0, no
    missing Results line, read from this run's reports) **and** neither the mattx branch tip nor testsuite
@@ -87,6 +87,7 @@ All triggers end up as a `workflow_dispatch` of `mattx-ci.yml` on `master`.
 |---|---|---|
 | `mattx_ref` | `1.9-dev` | mattx branch to test (`1.9-dev` or `main`) |
 | `mattx_sha` | empty | exact mattx commit; overrides `mattx_ref` |
+| `mattx_repo` | `brainmatt/mattx` | GitHub `owner/repo` to test; a fork such as `KrisBuytaert/mattx` to test a fix branch before it is merged |
 | `run_eessi` | `true` | `false` = functional suites only |
 | `force_eessi` | `false` | `true` = run the long suites even if fast suites failed or a newer commit exists (still needs the functional job to succeed) |
 
@@ -121,6 +122,17 @@ curl ... -d '{"ref":"master","inputs":{"mattx_sha":"b401a0e"}}' ...
 
 HTTP `204` means the dispatch was accepted. `500` with a `yaml:` message means
 the workflow file on the Forgejo mirror is not valid YAML.
+
+### Following fork branches until they are merged
+
+`ci/tracked.conf` lists what the poller follows, one `<owner/repo> <branch>` per line
+(upstream `1.9-dev` and `main`, plus the fix branches on `KrisBuytaert/mattx`). The poller
+reads it from GitHub `master` on every tick, so adding a branch is a commit to that file.
+A branch outside `brainmatt/mattx` is followed until its PR into `brainmatt/mattx` is merged
+or the branch is deleted; after that the poller skips it and logs that it can be removed.
+Poller state files use `ci/branch-key.sh` (`1.9-dev`, or `KrisBuytaert_fix_foo` for forks).
+The run is shown in the Telegram message and in the report banner / results table as
+`owner/repo@branch` (the **Branch** column, searchable).
 
 ### C. The poller (automatic, per commit)
 

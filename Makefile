@@ -30,7 +30,7 @@ export MATTX_IMAGES_ROOT := $(IMAGES_ROOT)
         test-eessi-osu-shm-alma test-eessi-osu-shm-deb test-eessi-osu-shm-ubu \
         test-mpi-alma test-mpi-deb test-mpi-ubu \
         test-dsm-alma test-dsm-deb test-dsm-ubu test-dsm-mesi3-alma \
-        test-stale-link-alma test-stale-link-deb test-stale-link-ubu \
+        test-stale-link-alma test-stale-link-deb test-stale-link-ubu test-unload-alma \
         start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
         status \
@@ -342,6 +342,9 @@ test-dsm-ubu: start-ubu
 
 test-stale-link-alma: ensure-alma-running
 	$(SCRIPTS)/test-stale-link.sh alma
+
+test-unload-alma: ensure-alma-running
+	$(SCRIPTS)/test-unload.sh alma
 
 test-stale-link-deb: ensure-deb-running
 	$(SCRIPTS)/test-stale-link.sh deb

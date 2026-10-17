@@ -29,6 +29,9 @@ from html import escape
 
 TAG_RE = re.compile(r"^\[(PASS|FAIL)\]\s+(.*)$")
 COMMIT_RE = re.compile(r"^mattx commit:\s*(\S+)\s*$")
+# "mattx source: owner/repo@branch" -- written by the CI so a run on a fork branch is
+# told apart from one on upstream 1.9-dev/main (absent in older reports).
+SOURCE_RE = re.compile(r"^mattx source:\s*(\S+)\s*$")
 KERNEL_RE = re.compile(r"^(\S+)\s+kernel:\s*(\S+)\s*$")
 # Printed by every test script's own final tally line ("Results: N passed, M
 # failed", "DSM Results: ...", "Stale-Link Results: ..."). Its absence means
@@ -41,6 +44,7 @@ NAME_RE = re.compile(r"^(?P<label>.+)-(?P<distro>alma|deb|ubu)-(?P<ts>\d{8}-\d{6
 
 def parse_report(path):
     commit = None
+    source = None
     kernels = {}
     assertions = []  # (status, message) in file order
     completed = False
@@ -50,6 +54,10 @@ def parse_report(path):
             m = COMMIT_RE.match(line)
             if m:
                 commit = m.group(1)
+                continue
+            m = SOURCE_RE.match(line)
+            if m:
+                source = m.group(1)
                 continue
             m = KERNEL_RE.match(line)
             if m:
@@ -78,6 +86,7 @@ def parse_report(path):
         "date": date_str,
         "mtime": mtime,
         "commit": commit,
+        "source": source,
         "kernels": kernels,
         "assertions": assertions,
         "completed": completed,
@@ -115,14 +124,14 @@ def sort_key(r):
 
 def render_markdown(reports):
     out = ["## mattx test run summary\n"]
-    out.append("| Kernel | mattx commit | Label | Date | Result |")
-    out.append("|---|---|---|---|---|")
+    out.append("| Kernel | mattx commit | Branch | Label | Date | Result |")
+    out.append("|---|---|---|---|---|---|")
     for r in sorted(reports, key=sort_key):
         kernel = kernel_summary(r["kernels"])
         commit = (r["commit"] or "unknown")[:12]
         _kind, header, fails = test_summary(r["assertions"], r["completed"])
         result = f"{header} — FAIL: {'; '.join(fails)}" if fails else header
-        out.append(f"| {kernel} | {commit} | {r['label']} ({r['distro']}) | {r['date']} | {result} |")
+        out.append(f"| {kernel} | {commit} | {r['source'] or 'unknown'} | {r['label']} ({r['distro']}) | {r['date']} | {result} |")
     return "\n".join(out) + "\n"
 
 
@@ -170,7 +179,7 @@ HTML_PAGE_TEMPLATE = """<!DOCTYPE html>
     <div class="opt"><label><input type="checkbox" class="status-filter" value="incomplete" checked> Incomplete</label> <a class="only" data-group="status">only</a></div>
   </fieldset>
   <fieldset>
-    <legend>Search (kernel / commit)</legend>
+    <legend>Search (kernel / commit / branch)</legend>
     <input id="search" type="text" placeholder="filter...">
   </fieldset>
 </div>
@@ -180,6 +189,7 @@ HTML_PAGE_TEMPLATE = """<!DOCTYPE html>
 <tr>
   <th data-key="kernel">Kernel</th>
   <th data-key="commit">mattx commit</th>
+  <th data-key="branch">Branch</th>
   <th data-key="label">Label</th>
   <th data-key="date">Date</th>
   <th data-key="status">Result</th>
@@ -238,7 +248,7 @@ __ROWS__
     getRows().forEach(function(row) {
       var label = row.getAttribute('data-label');
       var status = row.getAttribute('data-status');
-      var haystack = (row.getAttribute('data-kernel') + ' ' + row.getAttribute('data-commit')).toLowerCase();
+      var haystack = (row.getAttribute('data-kernel') + ' ' + row.getAttribute('data-commit') + ' ' + row.getAttribute('data-branch')).toLowerCase();
       var show = activeLabels.indexOf(label) !== -1 &&
                  activeStatuses.indexOf(status) !== -1 &&
                  (search === '' || haystack.indexOf(search) !== -1);
@@ -290,6 +300,7 @@ def render_html(reports):
     for r in sorted(reports, key=sort_key):
         kernel = escape(kernel_summary(r["kernels"]))
         commit = escape((r["commit"] or "unknown")[:12])
+        branch = escape(r["source"] or "unknown")
         label_raw = escape(r["label"])
         label_full = escape(f"{r['label']} ({r['distro']})")
         date = escape(r["date"])
@@ -305,9 +316,9 @@ def render_html(reports):
         else:
             result_html = escape(header)
         rows.append(
-            f'<tr data-kernel="{kernel}" data-commit="{commit}" data-label="{label_raw}" '
+            f'<tr data-kernel="{kernel}" data-commit="{commit}" data-branch="{branch}" data-label="{label_raw}" '
             f'data-date="{date}" data-status="{kind}" style="background:{bg}">'
-            f"<td>{kernel}</td><td>{commit}</td><td>{label_full}</td><td>{date}</td>"
+            f"<td>{kernel}</td><td>{commit}</td><td>{branch}</td><td>{label_full}</td><td>{date}</td>"
             f"<td>{result_html}</td></tr>"
         )
 

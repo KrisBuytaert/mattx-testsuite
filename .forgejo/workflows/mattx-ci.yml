@@ -19,8 +19,12 @@ name: mattx-ci
 on:
   workflow_dispatch:
     inputs:
+      mattx_repo:
+        description: "GitHub repo to test (owner/repo): brainmatt/mattx, or a fork such as KrisBuytaert/mattx"
+        required: false
+        default: "brainmatt/mattx"
       mattx_ref:
-        description: "mattx branch to test (1.9-dev or main)"
+        description: "mattx branch to test (1.9-dev, main, or a fork branch)"
         required: false
         default: "1.9-dev"
       mattx_sha:
@@ -62,19 +66,23 @@ jobs:
       - name: Fetch mattx source at the requested commit
         run: |
           S="$HOME/mattx-src"
+          repo="${{ inputs.mattx_repo || 'brainmatt/mattx' }}"
+          branch="${{ inputs.mattx_ref || '1.9-dev' }}"
           [ -d "$S/.git" ] || git clone -q https://github.com/brainmatt/mattx "$S"
-          git -C "$S" fetch -q --all --prune
+          # fetch the branch from the requested repo (upstream or a fork) into a fixed ref
+          git -C "$S" fetch -q --force "https://github.com/$repo" "refs/heads/$branch:refs/remotes/ci/current"
           ref="${{ inputs.mattx_sha }}"
-          [ -n "$ref" ] || ref="origin/${{ inputs.mattx_ref || '1.9-dev' }}"
+          [ -n "$ref" ] || ref=refs/remotes/ci/current
           git -C "$S" checkout -q --force "$ref"
           git -C "$S" log --oneline -1
+          echo "source: $repo@$branch"
 
       - name: Build and deploy to the nodes
-        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
+        run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '1.9-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
 
-      - name: Functional suites (run-tests, dsm, stale-link, mesi3)
+      - name: Functional suites (run-tests, dsm, stale-link, mesi3, unload)
         continue-on-error: true
-        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-alma test-dsm-alma test-stale-link-alma test-dsm-mesi3-alma
+        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-alma test-dsm-alma test-stale-link-alma test-dsm-mesi3-alma test-unload-alma
 
       - name: Fetch crash dumps
         if: always()
@@ -110,7 +118,7 @@ jobs:
               if [ -z "$res" ] || [ "${n:-0}" -gt 0 ]; then echo "failing: $(basename "$f"): ${res:-no result line}"; bad=$((bad+1)); fi
             done < <(find "$H/reports" -name '*-alma-*.txt' -newer "$H/.run-start" | sort)
             tested=$(git -C "$HOME/mattx-src" rev-parse HEAD)
-            tip=$(git ls-remote https://github.com/brainmatt/mattx "refs/heads/$b" | cut -f1)
+            tip=$(git ls-remote "https://github.com/${{ inputs.mattx_repo || 'brainmatt/mattx' }}" "refs/heads/$b" | cut -f1)
             tests=$(git ls-remote https://github.com/KrisBuytaert/mattx-testsuite refs/heads/master | cut -f1)
             # a pinned mattx_sha is a deliberate one-off: only the testsuite tip is checked
             if [ "$bad" -gt 0 ]; then reason=tests-failed
@@ -160,7 +168,7 @@ jobs:
       - name: Record tested pair
         run: |
           H=/var/lib/forgejo-runner-mattx/harness
-          b="${{ inputs.mattx_ref || '1.9-dev' }}"
+          b=$("$H/ci/branch-key.sh" "${{ inputs.mattx_repo || 'brainmatt/mattx' }}" "${{ inputs.mattx_ref || '1.9-dev' }}")
           echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested.$b"
           # Always recorded (so a broken deploy is not retried every poll); the result is kept alongside.
           echo "functional=${{ needs.functional.result }} eessi=${{ needs.eessi.result }} gate=${{ needs.gate.outputs.reason }}" > "$HOME/last-result.$b"
@@ -177,4 +185,4 @@ jobs:
         run: |
           H=/var/lib/forgejo-runner-mattx/harness
           # the checkout is not needed; the script lives in the persistent harness copy
-          H=$H "$H/ci/notify-telegram.sh" "${{ inputs.mattx_ref || '1.9-dev' }}" "${{ needs.functional.result }}" "${{ needs.eessi.result }}" "${{ github.run_number }}"
+          H=$H "$H/ci/notify-telegram.sh" "${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '1.9-dev' }}" "${{ needs.functional.result }}" "${{ needs.eessi.result }}" "${{ github.run_number }}"
