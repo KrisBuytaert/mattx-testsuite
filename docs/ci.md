@@ -28,7 +28,7 @@ Workflow `mattx-ci` (`.forgejo/workflows/mattx-ci.yml`), three jobs in order:
 1. **functional**: sync the harness into the persistent directory, fetch mattx at
    the requested branch/commit, `make upgrade-alma3` (build + deploy to the
    nodes), then `make -k test-alma test-dsm-alma test-stale-link-alma
-   test-dsm-mesi3-alma test-unload-alma test-admin-input-alma`, fetch kdump crash dumps, **publish** the reports.
+   test-dsm-mesi3-alma test-unload-alma test-mattxfs-umount-alma test-admin-input-alma`, fetch kdump crash dumps, **publish** the reports.
 2. **gate**: decides whether the long suites run (`reason` output). `ok` only if
    `functional` succeeded, **every fast suite passed** (no `failed` count above 0, no
    missing Results line, read from this run's reports) **and** neither the mattx branch tip nor testsuite

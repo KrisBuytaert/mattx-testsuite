@@ -30,7 +30,7 @@ export MATTX_IMAGES_ROOT := $(IMAGES_ROOT)
         test-eessi-osu-shm-alma test-eessi-osu-shm-deb test-eessi-osu-shm-ubu \
         test-mpi-alma test-mpi-deb test-mpi-ubu \
         test-dsm-alma test-dsm-deb test-dsm-ubu test-dsm-mesi3-alma \
-        test-stale-link-alma test-stale-link-deb test-stale-link-ubu test-unload-alma test-admin-input-alma \
+        test-stale-link-alma test-stale-link-deb test-stale-link-ubu test-unload-alma test-mattxfs-umount-alma test-admin-input-alma \
         start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop \
         status \
@@ -345,6 +345,9 @@ test-stale-link-alma: ensure-alma-running
 
 test-unload-alma: ensure-alma-running
 	$(SCRIPTS)/test-unload.sh alma
+
+test-mattxfs-umount-alma: ensure-alma-running
+	$(SCRIPTS)/test-mattxfs-umount.sh alma
 
 test-admin-input-alma: ensure-alma-running
 	$(SCRIPTS)/test-admin-input.sh alma
