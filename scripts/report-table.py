@@ -276,6 +276,9 @@ __ROWS__
     cb.addEventListener('change', applyFilters);
   });
   document.getElementById('search').addEventListener('input', applyFilters);
+  // A link like .../#q=fix/mattxfs shows the table already filtered (for pointing at specific runs)
+  var m = /[#&]q=([^&]*)/.exec(location.hash);
+  if (m) { document.getElementById('search').value = decodeURIComponent(m[1]); }
 
   // All / None buttons, and an "only" link next to each option: tick just that one.
   function groupBoxes(group) {
