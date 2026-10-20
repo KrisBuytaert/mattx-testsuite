@@ -355,6 +355,9 @@ test-admin-input-alma: ensure-alma-running
 test-threads-alma: ensure-alma-running
 	$(SCRIPTS)/test-threads.sh alma
 
+test-epoll-threads-alma: ensure-alma-running
+	$(SCRIPTS)/test-epoll-threads.sh alma
+
 test-stale-link-deb: ensure-deb-running
 	$(SCRIPTS)/test-stale-link.sh deb
 
