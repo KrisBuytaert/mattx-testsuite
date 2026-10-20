@@ -352,6 +352,9 @@ test-mattxfs-umount-alma: ensure-alma-running
 test-admin-input-alma: ensure-alma-running
 	$(SCRIPTS)/test-admin-input.sh alma
 
+test-threads-alma: ensure-alma-running
+	$(SCRIPTS)/test-threads.sh alma
+
 test-stale-link-deb: ensure-deb-running
 	$(SCRIPTS)/test-stale-link.sh deb
 
