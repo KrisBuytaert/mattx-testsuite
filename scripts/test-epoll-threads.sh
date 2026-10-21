@@ -32,6 +32,18 @@ fail() { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }
 LOG=/tmp/epoll_threads.log
 events() { run_on "$NODE1" "grep -c '^event' $LOG 2>/dev/null || true" 2>/dev/null | tail -1; }
 
+# What the cluster looks like when a check fails, so a failure in CI explains itself.
+diag() {
+    echo "  --- diagnostics ($1) ---"
+    echo "  threads on $NODE1:"; run_on "$NODE1" "ps -Lo tid,stat,wchan:22,comm -C epoll_threads --no-headers" 2>/dev/null | sed 's/^/    /' || true
+    echo "  threads on $NODE2:"; run_on "$NODE2" "ps -Lo tid,stat,wchan:22,comm -C epoll_threads --no-headers" 2>/dev/null | sed 's/^/    /' || true
+    echo "  $NODE1 dmesg (RECALL/IMPORT/HIJACK/WORMHOLE/oops), last 12:"
+    run_on "$NODE1" "sudo dmesg | grep -E 'RECALL|IMPORT|HIJACK|WORMHOLE|Oops|BUG:|segfault' | tail -12 | cut -c1-170" 2>/dev/null | sed 's/^/    /' || true
+    echo "  $NODE2 dmesg (RECALL/EXTRACT/DRAIN/RPC), last 12:"
+    run_on "$NODE2" "sudo dmesg | grep -E 'RECALL|RETURN|EXTRACT|DRAIN|RPC|Sending page' | tail -12 | cut -c1-170" 2>/dev/null | sed 's/^/    /' || true
+    echo "  $NODE1 mattx_recv threads:"; run_on "$NODE1" 'for p in $(pgrep -f mattx_recv); do echo "$p $(cat /proc/$p/comm) $(cut -d" " -f3 /proc/$p/stat)"; done' 2>/dev/null | sed 's/^/    /' || true
+}
+
 # Did the event counter grow by at least $2 within $3 seconds? (echo the final count)
 grows() {
     local from="$1" need="$2" secs="$3" now
@@ -69,6 +81,7 @@ else
                 pass "epoll-2: the process keeps producing events on $NODE2 ($B -> $N)"
             else
                 fail "epoll-2: no progress on $NODE2 after the migration ($B -> $N events in 30 s): process stuck (state: $(run_on "$NODE2" "ps -o stat= -C epoll_threads | tr '\n' ' '" || true))"
+                diag "after the migration"
             fi
 
             mattx_migrate "$NODE1" "$PID" home
@@ -78,6 +91,7 @@ else
                 pass "epoll-3: still producing events after the recall home ($B -> $N)"
             else
                 fail "epoll-3: no progress after the recall home ($B -> $N events in 30 s)"
+                diag "after the recall"
             fi
         else
             fail "epoll-1: epoll_threads produced only $N events on $NODE1 in 20 s, cannot run the test"
