@@ -300,6 +300,9 @@ print_version_banner() {
     echo "mattx commit: $(run_on "$NODE1" "cat ~/mattx/.mattx-commit 2>/dev/null || (cd ~/mattx && git rev-parse HEAD 2>/dev/null)" || echo "unknown")"
     echo "mattx source: $(run_on "$NODE1" "cat ~/mattx/.mattx-source 2>/dev/null" || echo "unknown")"
     echo "$NODE1 kernel: $(run_on "$NODE1" "uname -r" 2>/dev/null || echo "unknown")"
+    # The guest glibc matters for anything signal/thread related (e.g. pthread_cancel's si_pid check, mattx#9),
+    # so a change of it between two runs must be visible in the report.
+    echo "$NODE1 glibc: $(run_on "$NODE1" "ldd --version 2>/dev/null | head -1 | sed 's/.* //'; rpm -q glibc 2>/dev/null | head -1 | tr '\n' ' '" 2>/dev/null | tr '\n' ' ' || echo "unknown")"
     if [ -n "${NODE2:-}" ]; then
         echo "$NODE2 kernel: $(run_on "$NODE2" "uname -r" 2>/dev/null || echo "unknown")"
     fi
