@@ -40,6 +40,14 @@ on:
         required: false
         default: "false"
 
+# After the 2026-10-21 host upgrade a step that ends in `git log` stopped at "WARNING: terminal is
+# not fully functional" (a pager waiting for RETURN on the runner's pty) and ran into the 2 h job
+# timeout, six runs in a row. Never page, never prompt.
+env:
+  GIT_PAGER: cat
+  PAGER: cat
+  GIT_TERMINAL_PROMPT: "0"
+
 concurrency:
   group: mattx-cluster
   cancel-in-progress: false
@@ -74,7 +82,7 @@ jobs:
           ref="${{ inputs.mattx_sha }}"
           [ -n "$ref" ] || ref=refs/remotes/ci/current
           git -C "$S" checkout -q --force "$ref"
-          git -C "$S" log --oneline -1
+          git --no-pager -C "$S" log --oneline -1
           echo "source: $repo@$branch"
 
       - name: Build and deploy to the nodes
@@ -144,7 +152,7 @@ jobs:
           [ -d "$S/.git" ] || git clone -q https://github.com/EESSI/eessi-demo "$S"
           git -C "$S" fetch -q origin
           git -C "$S" checkout -q --force origin/HEAD
-          git -C "$S" log --oneline -1
+          git --no-pager -C "$S" log --oneline -1
           # the harness sync (rsync --delete) removes this link every run, so recreate it
           ln -sfn "$S" "$H/eessi-demo"
 
