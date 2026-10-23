@@ -64,6 +64,9 @@ run_on "$NODE" "sudo reboot" || true
 wait_for_ssh_down "$NODE"
 wait_for_ssh "$NODE"
 
+# the disks are thin qcow2 with discard=unmap: a weekly fstrim hands freed blocks back to the host
+run_on "$NODE" "sudo systemctl enable --now fstrim.timer" >/dev/null 2>&1 || true
+
 echo "[setup] installing packages on $NODE..."
 case "$DISTRO" in
     alma|fed)
