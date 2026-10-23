@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-epoll-threads.sh <alma|deb|ubu>
+# test-epoll-threads.sh <alma|deb|ubu|fed>
 # Regression test for mattx#14 (a migrated multi-threaded process stops forever, state T).
 # epoll_threads (scripts/epoll_threads.c) has one thread blocked in epoll_wait(-1) on an eventfd
 # and a second thread that writes the eventfd once a second; each event is logged.
@@ -9,7 +9,7 @@
 # producing events on the remote node, and again after a recall home.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -18,7 +18,8 @@ case "$DISTRO" in
     alma) NODE1="almanode1"; NODE2="almanode2" ;;
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1";  NODE2="fednode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
 auto_report_wrap "epoll-threads" "$@"

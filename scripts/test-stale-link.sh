@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-stale-link.sh <alma|deb|ubu>
+# test-stale-link.sh <alma|deb|ubu|fed>
 # Isolated, MPI/EESSI-free reproduction of a bug found via the OSU
 # shared-memory suite: /proc/mattx/nodes can keep reporting a peer as
 # connected long after its actual TCP socket is gone (cluster_map holds a
@@ -24,7 +24,7 @@
 # property of the trigger, not of this test.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -33,7 +33,8 @@ case "$DISTRO" in
     alma) NODE1="almanode1"; NODE2="almanode2" ;;
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1";  NODE2="fednode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
 auto_report_wrap "test-stale-link" "$@"

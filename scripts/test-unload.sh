@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-unload.sh <alma|deb|ubu>
+# test-unload.sh <alma|deb|ubu|fed>
 # Regression test for mattx#36: `rmmod mattx` (what `systemctl stop mattx` and every
 # redeploy do) used to oops in rethook_free() -> unregister_kretprobe() when one of the
 # hooks had failed to register (shmem_page_mkwrite does not exist on 6.12), taking the
@@ -10,7 +10,7 @@
 # service starts again and loads the modules. Needs MattX running on node1 at the start.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -19,7 +19,8 @@ case "$DISTRO" in
     alma) NODE1="almanode1" ;;
     deb)  NODE1="debnode1"  ;;
     ubu)  NODE1="ubunode1"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
 auto_report_wrap "test-unload" "$@"

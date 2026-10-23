@@ -1,8 +1,8 @@
 #!/bin/bash
-# run-tests.sh <alma|deb|ubu>
+# run-tests.sh <alma|deb|ubu|fed>
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -11,7 +11,8 @@ case "$DISTRO" in
     alma) NODE1="almanode1"; NODE2="almanode2" ;;
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1";  NODE2="fednode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
 auto_report_wrap "run-tests" "$@"

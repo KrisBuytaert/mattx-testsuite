@@ -36,7 +36,7 @@ run="runs"   # per-report subdirs below, dated from each filename
 scrub < reports/run-summary.html > "$work/site/index.html"
 mkdir -p "$work/site/$run"
 scrub < reports/run-summary.md > "$work/site/$run/run-summary.md"
-for f in reports/*-alma-*.txt reports/*-deb-*.txt reports/*-ubu-*.txt; do
+for f in reports/*-alma-*.txt reports/*-deb-*.txt reports/*-ubu-*.txt reports/*-fed-*.txt; do
     [ -e "$f" ] || continue
     ts=$(basename "$f" .txt | grep -oE '[0-9]{8}-[0-9]{6}$' | cut -c1-8)
     d="$work/site/$run/${ts:0:4}-${ts:4:2}-${ts:6:2}"

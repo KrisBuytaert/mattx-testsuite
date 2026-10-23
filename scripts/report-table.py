@@ -39,7 +39,7 @@ KERNEL_RE = re.compile(r"^(\S+)\s+kernel:\s*(\S+)\s*$")
 # genuinely clean pass, which must not be reported the same way.
 RESULTS_RE = re.compile(r"Results:\s*\d+\s*passed,\s*\d+\s*failed")
 # label-distro-YYYYMMDD-HHMMSS.txt
-NAME_RE = re.compile(r"^(?P<label>.+)-(?P<distro>alma|deb|ubu)-(?P<ts>\d{8}-\d{6})\.txt$")
+NAME_RE = re.compile(r"^(?P<label>.+)-(?P<distro>alma|deb|ubu|fed)-(?P<ts>\d{8}-\d{6})\.txt$")
 
 
 def commit_url(source, commit):

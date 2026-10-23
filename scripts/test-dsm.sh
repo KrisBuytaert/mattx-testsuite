@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-dsm.sh <alma|deb|ubu>
+# test-dsm.sh <alma|deb|ubu|fed>
 # Raw (non-EESSI) cluster test for bin/dsmtest.c (1.9-dev): a single process
 # that shmget/shmat's a SysV shared-memory segment, then does 100 write+read
 # loops against it 1s apart, each loop stamping "MattX DSM Magic! Loop N".
@@ -40,7 +40,7 @@
 # has not been run against a live cluster yet.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -49,7 +49,8 @@ case "$DISTRO" in
     alma) NODE1="almanode1"; NODE2="almanode2" ;;
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1";  NODE2="fednode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
 auto_report_wrap "dsm" "$@"

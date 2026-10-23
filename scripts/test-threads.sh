@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-threads.sh <alma|deb|ubu>
+# test-threads.sh <alma|deb|ubu|fed>
 # Reproduction of mattx#9 ("futex/wait breaks when threads are created on a different node
 # than the futex/wait runs"). threadtest forks a worker that sleeps 15 s, spawns N threads
 # (clone3/CLONE_VM, ticking every 5 s), ticks for 60 s, then tears the threads down with
@@ -15,7 +15,7 @@
 # Each step checks the node did not oops and the worker is still alive.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -24,7 +24,8 @@ case "$DISTRO" in
     alma) NODE1="almanode1"; NODE2="almanode2" ;;
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1";  NODE2="fednode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
 auto_report_wrap "threads" "$@"

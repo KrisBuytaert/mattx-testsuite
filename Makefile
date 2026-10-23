@@ -11,7 +11,7 @@ export MATTX_IMAGES_ROOT := $(IMAGES_ROOT)
 # debnode1:  192.168.100.21   debnode2:  192.168.100.22
 # ubunode1:  192.168.100.31   ubunode2:  192.168.100.32
 
-.PHONY: all alma debian ubuntu almacluster almacluster3 debcluster ubucluster allclusters \
+.PHONY: fedcluster upgrade-fed start-fed test-fed all alma debian ubuntu almacluster almacluster3 debcluster ubucluster allclusters \
         upgrade-alma upgrade-alma3 upgrade-deb upgrade-ubu \
         test-alma test-deb test-ubu ensure-alma-running ensure-alma-running3 ensure-deb-running \
         setup-eessi-alma setup-eessi-alma3 setup-eessi-deb setup-eessi-ubu \
@@ -147,7 +147,9 @@ $(STAMP)/network: | check $(STAMP)
 		52:54:00:0b:00:21=192.168.100.21 \
 		52:54:00:0b:00:22=192.168.100.22 \
 		52:54:00:0b:00:31=192.168.100.31 \
-		52:54:00:0b:00:32=192.168.100.32
+		52:54:00:0b:00:32=192.168.100.32 \
+		52:54:00:0c:00:41=192.168.100.41 \
+		52:54:00:0c:00:42=192.168.100.42
 	@touch $@
 
 # ---- VM provisioning ----
@@ -194,6 +196,44 @@ $(STAMP)/deb-built: $(STAMP)/deb-vms
 $(STAMP)/ubu-built: $(STAMP)/ubu-vms
 	$(SCRIPTS)/build-mattx.sh ubu
 	@touch $@
+
+# Fedora 44 (kernel 7.2): fednode1/2, 192.168.100.41/42
+$(STAMP)/fed-vms: $(STAMP)/network | keys
+	$(SCRIPTS)/create-vm.sh fed 1
+	$(SCRIPTS)/create-vm.sh fed 2
+	$(SCRIPTS)/setup-node.sh fed 1
+	$(SCRIPTS)/setup-node.sh fed 2
+	@touch $@
+
+$(STAMP)/fed-built: $(STAMP)/fed-vms
+	$(SCRIPTS)/build-mattx.sh fed
+	@touch $@
+
+$(STAMP)/fed-deployed: $(STAMP)/fed-built
+	$(SCRIPTS)/deploy-mattx.sh fed
+	@touch $@
+
+fedcluster: $(STAMP)/fed-deployed
+	$(SCRIPTS)/start-mattx.sh fed 1
+	$(SCRIPTS)/start-mattx.sh fed 2
+	@echo "Fedora cluster ready: fednode1 192.168.100.41, fednode2 192.168.100.42"
+
+upgrade-fed:
+	$(SCRIPTS)/build-mattx.sh fed
+	$(SCRIPTS)/deploy-mattx.sh fed
+	$(SCRIPTS)/start-mattx.sh fed 1
+	$(SCRIPTS)/start-mattx.sh fed 2
+
+start-fed:
+	virsh start fednode1 2>/dev/null || true
+	virsh start fednode2 2>/dev/null || true
+	$(SCRIPTS)/setup-node.sh fed 1
+	$(SCRIPTS)/setup-node.sh fed 2
+	$(SCRIPTS)/start-mattx.sh fed 1
+	$(SCRIPTS)/start-mattx.sh fed 2
+
+test-fed: start-fed
+	$(SCRIPTS)/run-tests.sh fed
 
 $(STAMP)/alma-deployed: $(STAMP)/alma-built
 	$(SCRIPTS)/deploy-mattx.sh alma

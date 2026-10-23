@@ -49,6 +49,18 @@ case "$DISTRO" in
             *) echo "ERROR: node num must be 1 or 2" >&2; exit 1 ;;
         esac
         ;;
+    fed)
+        # Fedora 44: kernel 7.2 (the 7.x one with strncpy() gone from <linux/string.h>)
+        VM_NAME="fednode${NODE_NUM}"
+        BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2"
+        BASE_IMAGE="$BASE_CACHE/fedora-44-base.qcow2"
+        OS_VARIANT="fedora-unknown"
+        case "$NODE_NUM" in
+            1) MAC="52:54:00:0c:00:41" ;;
+            2) MAC="52:54:00:0c:00:42" ;;
+            *) echo "ERROR: node num must be 1 or 2" >&2; exit 1 ;;
+        esac
+        ;;
     *)
         echo "ERROR: unknown distro '$DISTRO'" >&2; exit 1
         ;;

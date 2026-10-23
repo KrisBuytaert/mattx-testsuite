@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-mattxfs-umount.sh <alma|deb|ubu>
+# test-mattxfs-umount.sh <alma|deb|ubu|fed>
 # Regression test for mattx#31: after anything below /mattxfs/<node>/ has been looked up,
 # `umount /mattxfs` used to crash the node ("VFS: Busy inodes after unmount of mattxfs" +
 # kernel BUG at fs/super.c:650) or spin forever in shrink_dcache_parent()/d_walk() with
@@ -12,7 +12,7 @@
 # exercised -- not `rmmod mattx` (mattx#36) -- so this test is independent of that bug.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -21,7 +21,8 @@ case "$DISTRO" in
     alma) NODE1="almanode1" ;;
     deb)  NODE1="debnode1"  ;;
     ubu)  NODE1="ubunode1"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
 auto_report_wrap "test-mattxfs-umount" "$@"

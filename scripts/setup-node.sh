@@ -19,6 +19,8 @@ case "$DISTRO-$NODE_NUM" in
     deb-2)  NODE="debnode2";  PEERS="debnode1 192.168.100.21" ;;
     ubu-1)  NODE="ubunode1";  PEERS="ubunode2 192.168.100.32" ;;
     ubu-2)  NODE="ubunode2";  PEERS="ubunode1 192.168.100.31" ;;
+    fed-1)  NODE="fednode1";  PEERS="fednode2 192.168.100.42" ;;
+    fed-2)  NODE="fednode2";  PEERS="fednode1 192.168.100.41" ;;
     *) echo "Usage: $0 <alma|deb|ubu> <1|2|3 (alma only)>" >&2; exit 1 ;;
 esac
 
@@ -30,7 +32,7 @@ wait_for_ssh "$NODE"
 # headers produces a .ko with the wrong vermagic and insmod rejects it.
 echo "[setup] updating $NODE and rebooting into latest kernel..."
 case "$DISTRO" in
-    alma)
+    alma|fed)
         run_on "$NODE" "sudo dnf update -y"
         # kdump setup piggybacks on this same reboot cycle: kexec-tools
         # needs installing and crashkernel= needs to land in the boot
@@ -64,7 +66,7 @@ wait_for_ssh "$NODE"
 
 echo "[setup] installing packages on $NODE..."
 case "$DISTRO" in
-    alma)
+    alma|fed)
         # CRB repo is required for libnl3-devel on AlmaLinux 10 / RHEL 10
         run_on "$NODE" "sudo dnf config-manager --set-enabled crb 2>/dev/null || true"
         run_on "$NODE" "sudo dnf install -y gcc make git pkg-config rsync libnl3-devel kernel-devel \

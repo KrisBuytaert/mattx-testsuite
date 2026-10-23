@@ -1,9 +1,9 @@
 #!/bin/bash
-# build-mattx.sh <alma|deb|ubu>
+# build-mattx.sh <alma|deb|ubu|fed>
 # Rsyncs MattX source to node1, builds it, runs make install.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 source "$SCRIPT_DIR/sources.conf"
@@ -12,6 +12,7 @@ case "$DISTRO" in
     alma) NODE1="almanode1" ;;
     deb)  NODE1="debnode1"  ;;
     ubu)  NODE1="ubunode1"  ;;
+    fed)  NODE1="fednode1"  ;;
 esac
 
 init_cluster "$DISTRO"

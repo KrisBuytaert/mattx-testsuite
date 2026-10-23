@@ -1,10 +1,10 @@
 #!/bin/bash
-# deploy-mattx.sh <alma|deb|ubu> [extra_node ...]
+# deploy-mattx.sh <alma|deb|ubu|fed> [extra_node ...]
 # Relays built artifacts from node1 to node2 (and any extra_node args) via
 # host, runs make install on each.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu> [extra_node ...]}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed> [extra_node ...]}"
 shift
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
@@ -13,6 +13,7 @@ case "$DISTRO" in
     alma) NODE1="almanode1"; NODE2="almanode2" ;;
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
+    fed)  NODE1="fednode1";  NODE2="fednode2"  ;;
 esac
 
 init_cluster "$DISTRO"

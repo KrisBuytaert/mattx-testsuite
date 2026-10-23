@@ -19,6 +19,8 @@ node_ip() {
         debnode2)  echo "192.168.100.22" ;;
         ubunode1)  echo "192.168.100.31" ;;
         ubunode2)  echo "192.168.100.32" ;;
+        fednode1)  echo "192.168.100.41" ;;
+        fednode2)  echo "192.168.100.42" ;;
         *) echo "ERROR: unknown node '$1'" >&2; exit 1 ;;
     esac
 }
@@ -39,6 +41,7 @@ mattx_discovery_isolation() {
     case "$distro" in
         ubu) grp=239.0.0.2; port=7235 ;;
         deb) grp=239.0.0.3; port=7245 ;;
+        fed) grp=239.0.0.4; port=7255 ;;
         *)   return 0 ;;
     esac
     run_on "$node" "sudo sed -i 's|^MULTICAST_GROUP=.*|MULTICAST_GROUP=$grp|; s|^PORT=.*|PORT=$port|' /etc/mattx.conf"
@@ -141,7 +144,7 @@ mattx_tool_label() {
 init_cluster() {
     local distro="$1"
     case "$distro" in
-        alma|deb|ubu) ;;
+        alma|deb|ubu|fed) ;;
         *) echo "ERROR: unknown distro '$distro'" >&2; exit 1 ;;
     esac
     [ -f "$SSH_KEY" ] || {

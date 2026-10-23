@@ -1,5 +1,5 @@
 #!/bin/bash
-# fetch-crash-dump.sh <alma|deb|ubu> <1|2|3>
+# fetch-crash-dump.sh <alma|deb|ubu|fed> <1|2|3>
 # Lists and fetches any kdump-captured crash dumps from a node's /var/crash
 # into test/crash-dumps/<node>-<timestamp>/. Requires kdump to have been
 # set up on that node by setup-node.sh (alma only, as of this writing --
@@ -9,8 +9,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu> <1|2|3>}"
-NODE_NUM="${2:?Usage: $0 <alma|deb|ubu> <1|2|3>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed> <1|2|3>}"
+NODE_NUM="${2:?Usage: $0 <alma|deb|ubu|fed> <1|2|3>}"
 
 case "$DISTRO-$NODE_NUM" in
     alma-1) NODE="almanode1" ;;
@@ -20,7 +20,9 @@ case "$DISTRO-$NODE_NUM" in
     deb-2)  NODE="debnode2"  ;;
     ubu-1)  NODE="ubunode1"  ;;
     ubu-2)  NODE="ubunode2"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu> <1|2|3 (alma only)>" >&2; exit 1 ;;
+    fed-1)  NODE="fednode1"  ;;
+    fed-2)  NODE="fednode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed> <1|2|3 (alma only)>" >&2; exit 1 ;;
 esac
 
 init_cluster "$DISTRO"
