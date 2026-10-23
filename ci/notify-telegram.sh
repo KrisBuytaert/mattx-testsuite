@@ -16,13 +16,13 @@ sha=$(git -C "$HOME/mattx-src" rev-parse --short HEAD 2>/dev/null || echo "?")
 fails=0; lines=""
 while IFS= read -r f; do
     [ -n "$f" ] || continue
-    label=$(basename "$f" | sed -E 's/-alma-[0-9]{8}-[0-9]{6}\.txt$//')
+    label=$(basename "$f" | sed -E 's/-(alma|deb|ubu)-[0-9]{8}-[0-9]{6}\.txt$/ (\1)/; s/ \(alma\)$//')
     res=$(grep -E 'Results:' "$f" | tail -1 | sed -E 's/.*Results:[[:space:]]*//')
     if [ -z "$res" ]; then res="no result line (incomplete)"; fails=$((fails+1))
     else m=$(echo "$res" | sed -nE 's/.*, ([0-9]+) failed.*/\1/p'); [ "${m:-0}" -gt 0 ] && fails=$((fails+1)); fi
     lines="$lines
   $label: $res"
-done < <(find "$H/reports" -name '*-alma-*.txt' -newer "$H/.run-start" 2>/dev/null | sort)
+done < <(find "$H/reports" \( -name '*-alma-*.txt' -o -name '*-deb-*.txt' -o -name '*-ubu-*.txt' \) -newer "$H/.run-start" 2>/dev/null | sort)
 
 if [ "$fres" != success ] || { [ "$eres" != success ] && [ "$eres" != skipped ]; }; then icon="FAILED (infrastructure)"
 elif [ "$fails" -gt 0 ]; then icon="done, $fails suite(s) with failures"

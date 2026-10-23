@@ -117,6 +117,33 @@ case "$DISTRO" in
             }
             echo '[setup] kernel headers OK: '\"\${KVER}\"
         "
+        # kdump, like on alma: a node that crashes (the unload crash, upstream #36, killed every deploy
+        # until it was fixed) should leave a dmesg in /var/crash instead of just vanishing. kdump-tools
+        # (kexec-tools + makedumpfile) writes /var/crash/<timestamp>/dmesg.<timestamp> and dump.<timestamp>;
+        # crashkernel= has to be on the boot command line, so this costs one more reboot.
+        echo "[setup] enabling kdump on $NODE..."
+        run_on "$NODE" "
+            echo 'kdump-tools kdump-tools/use_kdump boolean true' | sudo debconf-set-selections
+            echo 'kexec-tools kexec-tools/load_kexec boolean true' | sudo debconf-set-selections
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=180 kdump-tools kexec-tools makedumpfile
+            # Ubuntu's kdump-tools drops its own crashkernel= into /etc/default/grub.d; add one only if nothing did
+            if ! grep -rqs crashkernel /etc/default/grub.d/ /etc/default/grub; then
+                echo 'GRUB_CMDLINE_LINUX_DEFAULT=\"\$GRUB_CMDLINE_LINUX_DEFAULT crashkernel=256M\"' | sudo tee /etc/default/grub.d/99-mattx-crashkernel.cfg >/dev/null
+            fi
+            sudo update-grub 2>&1 | tail -2
+        "
+        run_on "$NODE" "sudo reboot" || true
+        wait_for_ssh_down "$NODE"
+        wait_for_ssh "$NODE"
+        run_on "$NODE" "
+            if grep -q crashkernel /proc/cmdline; then
+                sudo systemctl enable --now kdump-tools >/dev/null 2>&1 || true
+                sudo kdump-config status 2>&1 | head -3
+                echo '[setup] kdump configured -- crash dumps will land in /var/crash on this node'
+            else
+                echo '[setup] WARNING: crashkernel= not present in /proc/cmdline after reboot -- kdump will not capture anything' >&2
+            fi
+        " || true
         ;;
 esac
 

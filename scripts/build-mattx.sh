@@ -44,6 +44,7 @@ IFACE=$(run_on "$NODE1" \
 echo "[build] cluster interface on $NODE1: $IFACE"
 run_on "$NODE1" "sudo sed -i 's|^INTERFACE=.*|INTERFACE=${IFACE}|' /etc/mattx.conf"
 run_on "$NODE1" "sudo sed -i 's|^MATTXFS_ENABLED=.*|MATTXFS_ENABLED=true|' /etc/mattx.conf"
+mattx_discovery_isolation "$DISTRO" "$NODE1"
 # Flush to disk: the next step may crash the node (rmmod mattx, upstream #36) and
 # an XFS that has not written the sed -i result yet comes back with a 0-byte
 # /etc/mattx.conf (seen twice), silently running MattX on defaults.

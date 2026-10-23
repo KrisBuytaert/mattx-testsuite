@@ -1,0 +1,111 @@
+# MattX on the other guest distros (Ubuntu 26.04 = kernel 7.x, Debian 13 = kernel 6.12) -- the AlmaLinux
+# run in mattx-ci.yml is the per-commit one; this one runs once in a while (weekly, Sunday night) and on
+# demand, to see how the same upstream branch behaves on a different kernel and userland.
+#
+# Same harness as mattx-ci.yml (persistent $HOME/harness, reports published to the same results page, where
+# the label column says "(ubu)" / "(deb)"). The VMs (ubunode1/2, debnode1/2) are provisioned on the first
+# run, or adopted if they already exist, and reused after that. They are separate VMs from the AlmaLinux
+# ones; their MattX clusters use their own multicast group so they never join each other
+# (scripts/lib.sh: mattx_discovery_isolation). 2 nodes each, so the 3-node MESI test is not run here.
+name: mattx-ci-other-distros
+on:
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: "ubu (Ubuntu 26.04) or deb (Debian 13)"
+        required: false
+        default: "ubu"
+      mattx_repo:
+        description: "GitHub repo to test (owner/repo)"
+        required: false
+        default: "brainmatt/mattx"
+      mattx_ref:
+        description: "mattx branch to test"
+        required: false
+        default: "2.0-dev"
+  schedule:
+    - cron: "17 2 * * 0"
+
+env:
+  GIT_PAGER: cat
+  PAGER: cat
+  GIT_TERMINAL_PROMPT: "0"
+
+concurrency:
+  group: mattx-cluster
+  cancel-in-progress: false
+
+jobs:
+  ubuntu:
+    # scheduled runs and manual runs without a distro input: Ubuntu
+    if: ${{ (inputs.distro || 'ubu') == 'ubu' }}
+    runs-on: mattx-host
+    timeout-minutes: 240
+    env:
+      H: /var/lib/forgejo-runner-mattx/harness
+      PAGES_KEY: /var/lib/forgejo-runner-mattx/pages_deploy
+      D: ubu
+      N1: ubunode1
+      N2: ubunode2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync harness code into the persistent directory
+        run: |
+          [ -f "$H/keys/mattx_test" ] || { echo "harness not provisioned: $H/keys/mattx_test missing" >&2; exit 1; }
+          [ -d "$H/.stamp" ] || { echo "harness not provisioned: $H/.stamp missing" >&2; exit 1; }
+          rsync -a --delete --exclude=.git --exclude=.stamp --exclude=keys --exclude=reports --exclude=crash-dumps ./ "$H/"
+          mkdir -p "$H/reports" "$H/crash-dumps"
+          git rev-parse HEAD > "$H/.testsuite-sha"
+          touch "$H/.run-start"
+
+      - name: Fetch mattx source
+        run: |
+          S="$HOME/mattx-src"
+          repo="${{ inputs.mattx_repo || 'brainmatt/mattx' }}"
+          branch="${{ inputs.mattx_ref || '2.0-dev' }}"
+          [ -d "$S/.git" ] || git clone -q https://github.com/brainmatt/mattx "$S"
+          git -C "$S" fetch -q --force "https://github.com/$repo" "refs/heads/$branch:refs/remotes/ci/current"
+          git -C "$S" checkout -q --force refs/remotes/ci/current
+          git --no-pager -C "$S" log --oneline -1
+          echo "source: $repo@$branch"
+
+      - name: Provision the VMs (first run) or adopt the existing ones
+        run: |
+          cd "$H"
+          export LIBVIRT_DEFAULT_URI=qemu:///system
+          if [ ! -f ".stamp/$D-vms" ]; then
+            if virsh dominfo "$N1" >/dev/null 2>&1 && virsh dominfo "$N2" >/dev/null 2>&1; then
+              echo "adopting the existing $N1/$N2"; touch ".stamp/$D-vms"
+            else
+              make "$D-vms"
+            fi
+          fi
+          for n in "$N1" "$N2"; do virsh domstate "$n" | grep -q running || virsh start "$n"; done
+
+      - name: Build and deploy to the nodes
+        run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '2.0-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-"$D"
+
+      - name: Suites
+        continue-on-error: true
+        run: |
+          cd "$H"
+          MATTX_SRC="$HOME/mattx-src/"; export MATTX_SRC
+          rc=0
+          for t in run-tests test-dsm test-stale-link test-unload test-mattxfs-umount test-admin-input test-threads test-epoll-threads; do
+            echo "##### $t ($D)"; scripts/$t.sh "$D" || rc=1
+          done
+          exit $rc
+
+      - name: Fetch crash dumps
+        if: always()
+        run: cd "$H" && for n in 1 2; do DUMP_MODE=dmesg KEEP_ON_NODE=3 scripts/fetch-crash-dump.sh "$D" $n || true; done
+
+      - name: Publish reports
+        if: always()
+        run: cd "$H" && scripts/publish-pages.sh
+
+      - name: Telegram summary
+        if: always()
+        run: |
+          H=$H "$H/ci/notify-telegram.sh" "${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '2.0-dev' }} on Ubuntu (kernel $(ssh -i $H/keys/mattx_test -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 mattx@192.168.100.31 uname -r 2>/dev/null || echo ?))" "${{ job.status }}" skipped "${{ github.run_number }}" || true

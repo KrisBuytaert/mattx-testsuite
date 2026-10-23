@@ -30,6 +30,20 @@ run_on() {
 }
 
 
+
+# All distro clusters share the 192.168.100.0/24 network and MattX discovers peers by multicast beacon, so the
+# Ubuntu and Debian clusters get their own multicast group and port: their nodes must never join (or show up in)
+# the AlmaLinux cluster the CI runs, and vice versa. AlmaLinux keeps the defaults.
+mattx_discovery_isolation() {
+    local distro="$1" node="$2" grp="" port=""
+    case "$distro" in
+        ubu) grp=239.0.0.2; port=7235 ;;
+        deb) grp=239.0.0.3; port=7245 ;;
+        *)   return 0 ;;
+    esac
+    run_on "$node" "sudo sed -i 's|^MULTICAST_GROUP=.*|MULTICAST_GROUP=$grp|; s|^PORT=.*|PORT=$port|' /etc/mattx.conf"
+}
+
 rsync_to() {
     local src="$1" node="$2" dst="$3"
     # shellcheck disable=SC2086

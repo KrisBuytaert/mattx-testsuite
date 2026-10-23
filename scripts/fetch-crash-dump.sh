@@ -53,7 +53,7 @@ echo "Fetching into $OUT_DIR ..."
 run_on "$NODE" "sudo chmod -R a+rX /var/crash"
 if [ "$DUMP_MODE" = dmesg ]; then
     # shellcheck disable=SC2086
-    rsync -az --include='*/' --include='vmcore-dmesg.txt' --exclude='*' \
+    rsync -az --include='*/' --include='vmcore-dmesg.txt' --include='dmesg.*' --exclude='*' \
         -e "ssh $SSH_OPTS" "$SSH_USER@$(node_ip "$NODE"):/var/crash/" "$OUT_DIR/"
     if [ -n "${KEEP_ON_NODE:-}" ]; then
         run_on "$NODE" "ls -dt /var/crash/*/ 2>/dev/null | tail -n +$((KEEP_ON_NODE+1)) | xargs -r sudo rm -rf"

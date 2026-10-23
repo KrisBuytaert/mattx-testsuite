@@ -161,6 +161,27 @@ From a checkout of this repo, as a user in the `libvirt` group:
 make upgrade-alma3`. `make report-table` builds `reports/run-summary.{md,html}`;
 `scripts/publish-pages.sh [--dry-run]` publishes (needs `keys/pages_deploy`).
 
+
+### Other distros: Ubuntu 26.04 (kernel 7.x) and Debian 13
+
+`.forgejo/workflows/mattx-ci-other-distros.yml` runs the same suites on the Ubuntu VMs
+(`ubunode1/2`, kernel 7.x; Debian 13, `debnode1/2`, has the same recipe) once a week (Sunday
+02:17) and on demand (`workflow_dispatch`, inputs `distro` `ubu`/`deb`, `mattx_repo`, `mattx_ref`
+default `2.0-dev`). It is not per commit: it exists to see how an upstream branch behaves on a
+different kernel and userland. Properties:
+
+* **VMs:** created on the first run (`make ubu-vms`, ~20 min), adopted if they already exist,
+  reused after that. They are separate VMs from the AlmaLinux ones.
+* **Isolation:** all clusters share 192.168.100.0/24 and MattX discovers peers with a multicast
+  beacon, so the Ubuntu cluster uses its own group/port (`239.0.0.2:7235`, Debian `239.0.0.3:7245`;
+  `scripts/lib.sh: mattx_discovery_isolation`, written into `/etc/mattx.conf` at build/deploy time).
+  AlmaLinux keeps `239.0.0.1:7225`.
+* **kdump:** `setup-node.sh` installs `kdump-tools` and a `crashkernel=` on Debian/Ubuntu, like on
+  alma; dumps land in `/var/crash/<timestamp>/dmesg.<timestamp>` (the crash-dump fetcher copies those).
+* **2 nodes only:** no 3-node MESI test, no chain tests.
+* **Reports:** published to the same results page; the Label column reads `... (ubu)`.
+* Runs in the `mattx-cluster` concurrency group, so it queues behind a running AlmaLinux run.
+
 ## 4. Important: workflow changes reach Forgejo via the mirror
 
 Forgejo runs the workflow file **from its mirror** `vox/mattx-testsuite`, which

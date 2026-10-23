@@ -36,7 +36,7 @@ run="runs"   # per-report subdirs below, dated from each filename
 scrub < reports/run-summary.html > "$work/site/index.html"
 mkdir -p "$work/site/$run"
 scrub < reports/run-summary.md > "$work/site/$run/run-summary.md"
-for f in reports/*-alma-*.txt; do
+for f in reports/*-alma-*.txt reports/*-deb-*.txt reports/*-ubu-*.txt; do
     [ -e "$f" ] || continue
     ts=$(basename "$f" .txt | grep -oE '[0-9]{8}-[0-9]{6}$' | cut -c1-8)
     d="$work/site/$run/${ts:0:4}-${ts:4:2}-${ts:6:2}"
@@ -50,9 +50,9 @@ git add -A
 if git diff --cached --quiet; then echo "nothing new to publish"; exit 0; fi
 if [ "$DRY" = 1 ]; then
     git diff --cached --stat | tail -5
-    mkdir -p /tmp/claude-1000/-home-src-mattx-test/b3c9b7a7-86e0-49b8-a7de-46ab79a8d37c/scratchpad/pages-dry
-    cp -r "$work/site/." /tmp/claude-1000/-home-src-mattx-test/b3c9b7a7-86e0-49b8-a7de-46ab79a8d37c/scratchpad/pages-dry/
-    echo "dry run: staged copy in scratchpad/pages-dry"; exit 0
+    dry="${TMPDIR:-/tmp}/pages-dry"; rm -rf "$dry"; mkdir -p "$dry"
+    cp -r "$work/site/." "$dry/"
+    echo "dry run: staged copy in $dry"; exit 0
 fi
 git -c user.name="mattx-testsuite" -c user.email="noreply@percona.com" commit -q -m "Publish reports $(date -u +%Y-%m-%dT%H:%MZ)"
 git push -q origin gh-pages

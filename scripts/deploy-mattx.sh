@@ -36,6 +36,8 @@ for NODE in "$NODE2" "$@"; do
     echo "[deploy] cluster interface on $NODE: $IFACE"
     run_on "$NODE" "sudo sed -i 's|^INTERFACE=.*|INTERFACE=${IFACE}|' /etc/mattx.conf"
     run_on "$NODE" "sudo sed -i 's|^MATTXFS_ENABLED=.*|MATTXFS_ENABLED=true|' /etc/mattx.conf"
+    mattx_discovery_isolation "$DISTRO" "$NODE"
+    run_on "$NODE" "sync"
 done
 
 echo "[deploy] done"
