@@ -11,7 +11,7 @@ export MATTX_IMAGES_ROOT := $(IMAGES_ROOT)
 # debnode1:  192.168.100.21   debnode2:  192.168.100.22
 # ubunode1:  192.168.100.31   ubunode2:  192.168.100.32
 
-.PHONY: fedcluster upgrade-fed start-fed test-fed all alma debian ubuntu almacluster almacluster3 debcluster ubucluster allclusters \
+.PHONY: fedora fedcluster upgrade-fed start-fed test-fed all alma debian ubuntu almacluster almacluster3 debcluster ubucluster allclusters \
         upgrade-alma upgrade-alma3 upgrade-deb upgrade-ubu \
         test-alma test-deb test-ubu ensure-alma-running ensure-alma-running3 ensure-deb-running \
         setup-eessi-alma setup-eessi-alma3 setup-eessi-deb setup-eessi-ubu \
@@ -32,7 +32,7 @@ export MATTX_IMAGES_ROOT := $(IMAGES_ROOT)
         test-dsm-alma test-dsm-deb test-dsm-ubu test-dsm-mesi3-alma \
         test-stale-link-alma test-stale-link-deb test-stale-link-ubu test-unload-alma test-mattxfs-umount-alma test-admin-input-alma \
         start-alma start-alma3 start-deb start-ubu start \
-        stop-alma stop-deb stop-ubu stop \
+        stop-alma stop-deb stop-ubu stop-fed stop \
         status \
         clean-alma clean-deb clean-ubu clean \
         report-table \
@@ -46,10 +46,12 @@ all:
 	@echo "  make alma          provision single AlmaLinux 10 node (almanode1)"
 	@echo "  make debian        provision single Debian 13 node   (debnode1)"
 	@echo "  make ubuntu        provision single Ubuntu 26.04 node (ubunode1)"
+	@echo "  make fedora        provision single Fedora 44 node (fednode1)"
 	@echo "  make almacluster   2-node AlmaLinux cluster: provision + build + start MattX"
 	@echo "  make almacluster3  3-node AlmaLinux cluster: adds almanode3 for chain-migration tests"
 	@echo "  make debcluster    2-node Debian cluster:    provision + build + start MattX"
 	@echo "  make ubucluster    2-node Ubuntu cluster:    provision + build + start MattX"
+	@echo "  make fedcluster    2-node Fedora 44 cluster (kernel 7.2): provision + build + start MattX"
 	@echo "  make allclusters   both clusters"
 	@echo ""
 	@echo "Daily use (VMs stay on disk, no reprovisioning):"
@@ -57,21 +59,25 @@ all:
 	@echo "  make stop-alma     graceful shutdown of AlmaLinux VMs"
 	@echo "  make stop-deb      graceful shutdown of Debian VMs"
 	@echo "  make stop-ubu      graceful shutdown of Ubuntu VMs"
+	@echo "  make stop-fed      graceful shutdown of Fedora VMs"
 	@echo "  make start         start all VMs + restart MattX"
 	@echo "  make start-alma    start AlmaLinux VMs + restart MattX"
 	@echo "  make start-deb     start Debian VMs + restart MattX"
 	@echo "  make start-ubu     start Ubuntu VMs + restart MattX"
+	@echo "  make start-fed     start Fedora VMs + restart MattX"
 	@echo "  make status        show VM power states"
 	@echo ""
 	@echo "Upgrade (rebuild + reload on running cluster):"
 	@echo "  make upgrade-alma  rebuild MattX and reload modules on AlmaLinux cluster"
 	@echo "  make upgrade-deb   rebuild MattX and reload modules on Debian cluster"
 	@echo "  make upgrade-ubu   rebuild MattX and reload modules on Ubuntu cluster"
+	@echo "  make upgrade-fed   rebuild MattX and reload modules on Fedora cluster"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test-alma               run MattX migration tests on AlmaLinux cluster"
 	@echo "  make test-deb                run MattX migration tests on Debian cluster"
 	@echo "  make test-ubu                run MattX migration tests on Ubuntu cluster"
+	@echo "  make test-fed                run MattX migration tests on Fedora cluster"
 	@echo ""
 	@echo "EESSI / HPC software stack:"
 	@echo "  make setup-eessi-alma        install CVMFS + EESSI on AlmaLinux cluster"
@@ -272,6 +278,12 @@ ubuntu: $(STAMP)/network keys
 	$(SCRIPTS)/setup-node.sh ubu 1
 	@echo ""
 	@echo "Ubuntu node ready — ssh mattx@192.168.100.31 -i $(KEYS_DIR)/mattx_test"
+
+fedora: $(STAMP)/network keys
+	$(SCRIPTS)/create-vm.sh fed 1
+	$(SCRIPTS)/setup-node.sh fed 1
+	@echo ""
+	@echo "Fedora node ready — ssh mattx@192.168.100.41 -i $(KEYS_DIR)/mattx_test"
 
 almacluster: $(STAMP)/alma-deployed
 	$(SCRIPTS)/start-mattx.sh alma 1
@@ -588,9 +600,14 @@ stop-deb:
 stop-ubu:
 	virsh shutdown ubunode1 2>/dev/null || true
 	virsh shutdown ubunode2 2>/dev/null || true
-	@echo "[stop] Debian VMs shutting down"
+	@echo "[stop] Ubuntu VMs shutting down"
 
-stop: stop-alma stop-deb stop-ubu
+stop-fed:
+	virsh shutdown fednode1 2>/dev/null || true
+	virsh shutdown fednode2 2>/dev/null || true
+	@echo "[stop] Fedora VMs shutting down"
+
+stop: stop-alma stop-deb stop-ubu stop-fed
 
 # ---- Start (boot existing VMs, then restart MattX) ----
 
