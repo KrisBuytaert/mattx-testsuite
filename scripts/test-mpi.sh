@@ -42,7 +42,7 @@
 #         analogous to test-dsm.sh's loop_sequence()/is_continuous() check.
 set -euo pipefail
 
-DISTRO="${1:?Usage: $0 <alma|deb|ubu>}"
+DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/.."
 source "$SCRIPT_DIR/lib.sh"
@@ -96,7 +96,7 @@ ensure_mpich() {
     fi
     echo "  [mpi] installing mpich on $node..."
     case "$DISTRO" in
-        alma) run_on "$node" "sudo dnf install -y mpich mpich-devel" ;;
+        alma|fed) run_on "$node" "sudo dnf install -y mpich mpich-devel" ;;
         deb|ubu) run_on "$node" "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mpich libmpich-dev" ;;
     esac
     run_on "$node" "$(mpich_env); command -v mpicc >/dev/null && command -v mpirun >/dev/null"
