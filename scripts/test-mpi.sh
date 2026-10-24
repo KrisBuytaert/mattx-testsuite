@@ -1,5 +1,7 @@
 #!/bin/bash
-# test-mpi.sh <alma|deb|ubu>
+# test-mpi.sh <alma|deb|ubu|fed>
+#   MPICH_PREFIX=<dir> test-mpi.sh <distro>   use a self-built MPICH under <dir> on both nodes
+#   MPI_SUPPORT=0 test-mpi.sh <distro>   run WITHOUT the MPI admin switch (report label "mpi-nompi")
 # Dedicated MPI migration test using upstream's own MPICH-debugging pair,
 # bin/mpich/mpitest/{mpitest.c,mpitest-client.c} (in the main mattx repo,
 # already rsynced onto both nodes by build-mattx.sh/deploy-mattx.sh under
@@ -49,10 +51,17 @@ case "$DISTRO" in
     alma) NODE1="almanode1"; NODE2="almanode2" ;;
     deb)  NODE1="debnode1";  NODE2="debnode2"  ;;
     ubu)  NODE1="ubunode1";  NODE2="ubunode2"  ;;
-    *) echo "Usage: $0 <alma|deb|ubu>" >&2; exit 1 ;;
+    fed)  NODE1="fednode1";  NODE2="fednode2"  ;;
+    *) echo "Usage: $0 <alma|deb|ubu|fed>" >&2; exit 1 ;;
 esac
 
-auto_report_wrap "mpi" "$@"
+# Upstream (brainmatt, 2026-10-24): on the current 2.0-dev the MPI pingpong keeps counting with the
+# MPI switch OFF, so the special config should become unnecessary. MPI_SUPPORT=0 checks exactly that
+# and is reported under its own label so the two variants can be compared on the Pages table.
+MPI_SUPPORT="${MPI_SUPPORT:-1}"
+if [ "$MPI_SUPPORT" = 1 ]; then MPI_LABEL=mpi; else MPI_LABEL=mpi-nompi; fi
+
+auto_report_wrap "$MPI_LABEL" "$@"
 
 init_cluster "$DISTRO"
 
@@ -65,6 +74,12 @@ MPITEST_DIR="~/mattx/bin/mpich/mpitest"
 # via update-alternatives, so the module load is skipped there if there's
 # nothing to load.
 mpich_env() {
+    # MPICH_PREFIX=<dir> (same path on both nodes) uses a self-built MPICH instead of the distro package,
+    # e.g. to tell an MPICH-version effect from a kernel effect.
+    if [ -n "${MPICH_PREFIX:-}" ]; then
+        echo "export PATH=$MPICH_PREFIX/bin:\$PATH LD_LIBRARY_PATH=$MPICH_PREFIX/lib:\${LD_LIBRARY_PATH:-}"
+        return
+    fi
     cat <<'EOF'
 if [ -f /usr/share/Modules/init/bash ]; then
     source /usr/share/Modules/init/bash
@@ -164,9 +179,12 @@ trap cleanup EXIT INT TERM
 echo "=== MPI (MPI_Comm_spawn) migration tests on ${DISTRO} cluster ==="
 echo ""
 
-echo "[mpi] enabling MPI support on $NODE1 and $NODE2 (echo 'mpi 1' > /proc/mattx/admin)..."
-run_on "$NODE1" "echo 'mpi 1' | sudo tee /proc/mattx/admin > /dev/null"
-run_on "$NODE2" "echo 'mpi 1' | sudo tee /proc/mattx/admin > /dev/null"
+echo "[mpi] setting MPI support to $MPI_SUPPORT on $NODE1 and $NODE2 (echo 'mpi $MPI_SUPPORT' > /proc/mattx/admin)..."
+run_on "$NODE1" "echo 'mpi $MPI_SUPPORT' | sudo tee /proc/mattx/admin > /dev/null"
+run_on "$NODE2" "echo 'mpi $MPI_SUPPORT' | sudo tee /proc/mattx/admin > /dev/null"
+for n in "$NODE1" "$NODE2"; do
+    run_on "$n" "grep 'MPI Support' /proc/mattx/admin /proc/mattx/nodes 2>/dev/null | head -1" || true
+done
 
 # ---- Test 1: install MPICH (if needed) + build mpitest/mpitest-client ----
 echo ""
