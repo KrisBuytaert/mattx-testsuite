@@ -24,6 +24,7 @@ Usage:
                    header X-Api-Key from $VAR (default CDVIZ_API_KEY)
   --siblings DIR   directory of run JSONs (reports/): the pipelineRun of a CI run is computed from every
                    JSON there with the same ci.run_url, not just the ones named on the command line
+  CDVIZ_RESOLVE=name=ip pins the connection address for that name (see pin_host)
   With neither, the events are printed to stdout (a dry run).
 
 Exit status is non-zero if any POST failed.
@@ -160,6 +161,21 @@ def pipeline_events(runs, source):
             ev("dev.cdevents.pipelinerun.finished.0.2.0", end, fin)]
 
 
+def pin_host():
+    """CDVIZ_RESOLVE=host=ip makes --post connect to that address for that host name (a stand-in for an
+    /etc/hosts line, for when the name does not resolve yet); TLS still checks the real host name."""
+    spec = os.environ.get("CDVIZ_RESOLVE", "")
+    if "=" not in spec:
+        return
+    import socket
+    host, ip = spec.split("=", 1)
+    real = socket.getaddrinfo
+
+    def patched(h, *args, **kw):
+        return real(ip if h == host else h, *args, **kw)
+    socket.getaddrinfo = patched
+
+
 def post(url, key, ev):
     req = urllib.request.Request(url, data=json.dumps(ev).encode(), method="POST",
                                  headers={"Content-Type": "application/json", **({"X-Api-Key": key} if key else {})})
@@ -184,6 +200,7 @@ def main():
     a = ap.parse_args()
 
     key = os.environ.get(a.api_key_env, "")
+    pin_host()
     failed = sent = 0
     for path in a.runs:
         with open(path) as f:
