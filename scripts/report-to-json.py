@@ -175,7 +175,16 @@ def main():
     if a.all:
         d = a.report or os.path.join(os.path.dirname(_here), "reports")
         files = sorted(glob.glob(os.path.join(d, "*.txt")))
-        runs = [convert(f) for f in files]
+        def load(f):
+            """the JSON written at test time wins: converting again here would stamp the publisher's CI env"""
+            j = f[:-4] + ".json"
+            if os.path.exists(j) and os.path.getmtime(j) >= os.path.getmtime(f):
+                try:
+                    return json.load(open(j))
+                except ValueError:
+                    pass
+            return convert(f)
+        runs = [load(f) for f in files]
         runs.sort(key=lambda x: x["started"], reverse=True)
         out = a.out or os.path.join(d, "run-summary.json")
         write_json({"schema": SCHEMA + "-index", "generated": iso(datetime.now().timestamp()),
