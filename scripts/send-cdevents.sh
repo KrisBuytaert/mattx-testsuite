@@ -26,7 +26,7 @@ for txt in reports/*-alma-*.txt reports/*-deb-*.txt reports/*-ubu-*.txt reports/
     grep -qxF "$name" "$STATE" && continue
     if [ "$first" = 1 ] && [ "${CDVIZ_BACKFILL:-0}" != 1 ]; then echo "$name" >> "$STATE"; continue; fi
     json="${txt%.txt}.json"
-    [ "$json" -nt "$txt" ] || scripts/report-to-json.py "$txt" >/dev/null || continue
+    [ -e "$json" ] && [ ! "$txt" -nt "$json" ] || scripts/report-to-json.py "$txt" >/dev/null || continue
     # not finished and nothing failed yet: probably still running, leave it for the next call
     python3 -I - "$json" <<'PY' || continue
 import json, sys

@@ -29,7 +29,7 @@ make report-table >/dev/null
 # and the run-summary.json index; cdviz gets the same data as CDEvents (send-cdevents.sh).
 for f in reports/*-alma-*.txt reports/*-deb-*.txt reports/*-ubu-*.txt reports/*-fed-*.txt; do
     [ -e "$f" ] || continue
-    [ "${f%.txt}.json" -nt "$f" ] || scripts/report-to-json.py "$f" >/dev/null || true
+    [ ! "$f" -nt "${f%.txt}.json" ] && [ -e "${f%.txt}.json" ] || scripts/report-to-json.py "$f" >/dev/null || true
 done
 scripts/report-to-json.py --all reports -o reports/run-summary.json >/dev/null
 scripts/send-cdevents.sh || true
