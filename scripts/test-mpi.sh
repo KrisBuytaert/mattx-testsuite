@@ -58,6 +58,7 @@ esac
 # Upstream (brainmatt, 2026-10-24): on the current 2.0-dev the MPI pingpong keeps counting with the
 # MPI switch OFF, so the special config should become unnecessary. MPI_SUPPORT=0 checks exactly that
 # and is reported under its own label so the two variants can be compared on the Pages table.
+# MPICH_NO_LOCAL=1 and MPI_LAUNCHER='' reproduce upstream's run-mpitest (default launcher, no -launcher fork).
 MPI_SUPPORT="${MPI_SUPPORT:-1}"
 if [ "$MPI_SUPPORT" = 1 ]; then MPI_LABEL=mpi; else MPI_LABEL=mpi-nompi; fi
 
@@ -232,7 +233,7 @@ run_on "$NODE1" "rm -f /tmp/mpitest.log"
 run_on "$NODE1" "
     $(mpich_env)
     cd ${MPITEST_DIR}
-    setsid nohup mpirun -launcher fork -np 1 ./mpitest </dev/null >/tmp/mpitest_baseline_run.log 2>&1 &
+    setsid nohup env ${MPICH_NO_LOCAL:+MPICH_NO_LOCAL=$MPICH_NO_LOCAL} mpirun ${MPI_LAUNCHER--launcher fork} -np 1 ./mpitest </dev/null >/tmp/mpitest_baseline_run.log 2>&1 &
     disown
 "
 # Hydra's spawn handshake is slow under a detached/no-tty launch (observed
@@ -268,7 +269,7 @@ else
     run_on "$NODE1" "
         $(mpich_env)
         cd ${MPITEST_DIR}
-        setsid nohup mpirun -launcher fork -np 1 ./mpitest </dev/null >/tmp/mpitest_run.log 2>&1 &
+        setsid nohup env ${MPICH_NO_LOCAL:+MPICH_NO_LOCAL=$MPICH_NO_LOCAL} mpirun ${MPI_LAUNCHER--launcher fork} -np 1 ./mpitest </dev/null >/tmp/mpitest_run.log 2>&1 &
         disown
     "
 
