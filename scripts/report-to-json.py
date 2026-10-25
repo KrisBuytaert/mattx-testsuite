@@ -33,7 +33,8 @@ _spec = importlib.util.spec_from_file_location("report_table", os.path.join(_her
 report_table = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(report_table)
 
-CASE_ID_RE = re.compile(r"^([A-Za-z0-9][\w.+-]*):\s+(.*)$")
+# "mpi-3: counting ..." and "admin-27 (nonexistent pid): ..." both give the id (mpi-3, admin-27)
+CASE_ID_RE = re.compile(r"^([A-Za-z][\w.+]*-\d+[a-z]?)(?:\s*:\s*|\s+)(.*)$|^([A-Za-z0-9][\w.+-]*):\s+(.*)$")
 GLIBC_RE = re.compile(r"^(\S+)\s+glibc:\s*(\S+)")
 
 
@@ -95,7 +96,7 @@ def convert(path):
     prev = start
     for i, (status, msg) in enumerate(r["assertions"]):
         m = CASE_ID_RE.match(msg)
-        cid, name = (m.group(1), m.group(2)) if m else (slug(msg), msg)
+        cid, name = ((m.group(1) or m.group(3)), (m.group(2) or m.group(4))) if m else (slug(msg), msg)
         finished = times[i] if timed else None
         dur = round(max(finished - prev, 0.0), 1) if timed else None
         if timed:
