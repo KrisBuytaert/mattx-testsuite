@@ -1,7 +1,7 @@
 #!/bin/bash
 # publish-pages.sh -- publish the report-table output to the gh-pages repo.
 #
-# Builds reports/run-summary.{md,html,json} via report-table.py, scrubs
+# Builds reports/run-summary.{md,html} via report-table.py and run-summary.json via report-to-json.py, scrubs
 # internal paths/IPs (hostnames and kernel versions stay), and pushes to the
 # gh-pages branch of KrisBuytaert/mattx-test-reports with a write-only deploy
 # key. Layout on the page: index.html = summary table of ALL reports;
@@ -25,6 +25,14 @@ scrub() {
 }
 
 make report-table >/dev/null
+# machine-readable twins: <report>.json per run (rebuilt when missing or older than the transcript)
+# and the run-summary.json index; cdviz gets the same data as CDEvents (send-cdevents.sh).
+for f in reports/*-alma-*.txt reports/*-deb-*.txt reports/*-ubu-*.txt reports/*-fed-*.txt; do
+    [ -e "$f" ] || continue
+    [ "${f%.txt}.json" -nt "$f" ] || scripts/report-to-json.py "$f" >/dev/null || true
+done
+scripts/report-to-json.py --all reports -o reports/run-summary.json >/dev/null
+scripts/send-cdevents.sh || true
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -36,12 +44,17 @@ run="runs"   # per-report subdirs below, dated from each filename
 scrub < reports/run-summary.html > "$work/site/index.html"
 mkdir -p "$work/site/$run"
 scrub < reports/run-summary.md > "$work/site/$run/run-summary.md"
+scrub < reports/run-summary.json > "$work/site/run-summary.json"
 for f in reports/*-alma-*.txt reports/*-deb-*.txt reports/*-ubu-*.txt reports/*-fed-*.txt; do
     [ -e "$f" ] || continue
     ts=$(basename "$f" .txt | grep -oE '[0-9]{8}-[0-9]{6}$' | cut -c1-8)
     d="$work/site/$run/${ts:0:4}-${ts:4:2}-${ts:6:2}"
     mkdir -p "$d"
     scrub < "$f" > "$d/$(basename "$f")"
+    [ -e "${f%.txt}.json" ] && scrub < "${f%.txt}.json" > "$d/$(basename "${f%.txt}.json")"
+    nd="$d/$(basename "${f%.txt}.cdevents.ndjson")"; rm -f "$nd"
+    scripts/emit-cdevents.py "${f%.txt}.json" --report-url-base "${CDVIZ_REPORT_URL_BASE:-https://krisbuytaert.be/mattx-test-reports/runs}" \
+        --ndjson "$nd" 2>/dev/null || rm -f "$nd"
 done
 touch "$work/site/.nojekyll"
 

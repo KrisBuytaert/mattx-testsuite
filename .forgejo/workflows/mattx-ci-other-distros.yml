@@ -103,6 +103,10 @@ jobs:
 
       - name: Publish reports
         if: always()
+        # CDVIZ_* are optional repo secrets: unset = the CDEvents step is skipped (scripts/send-cdevents.sh)
+        env:
+          CDVIZ_URL: ${{ secrets.CDVIZ_URL }}
+          CDVIZ_API_KEY: ${{ secrets.CDVIZ_API_KEY }}
         run: cd "$H" && scripts/publish-pages.sh
 
       - name: Telegram summary
@@ -179,6 +183,10 @@ jobs:
 
       - name: Publish reports
         if: always()
+        # CDVIZ_* are optional repo secrets: unset = the CDEvents step is skipped (scripts/send-cdevents.sh)
+        env:
+          CDVIZ_URL: ${{ secrets.CDVIZ_URL }}
+          CDVIZ_API_KEY: ${{ secrets.CDVIZ_API_KEY }}
         run: cd "$H" && scripts/publish-pages.sh
 
       - name: Telegram summary

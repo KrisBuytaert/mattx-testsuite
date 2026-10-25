@@ -343,9 +343,22 @@ auto_report_wrap() {
     echo "[report] full transcript: $report_file"
     export REPORT_ACTIVE=1
     local rc=0
-    "$0" "$@" 2>&1 | tee "$report_file" || rc=$?
+    # <report>.times: epoch<TAB>line for every [PASS]/[FAIL], so report-to-json.py can give each
+    # check a timestamp and a duration (the transcript itself carries no timing).
+    local times_file="${report_file%.txt}.times"
+    : > "$times_file"
+    "$0" "$@" 2>&1 | tee "$report_file" | while IFS= read -r _line; do
+        printf '%s\n' "$_line"
+        case "$_line" in
+            "[PASS]"*|"[FAIL]"*) printf '%s\t%s\n' "$(date +%s.%N)" "$_line" >> "$times_file" ;;
+        esac
+    done || rc=$?
     echo ""
     echo "Full report: $report_file"
+    # machine-readable twin of the transcript (consumed by the Pages site and emit-cdevents.py)
+    "$SCRIPT_DIR/report-to-json.py" "$report_file" >/dev/null \
+        && echo "[report] ${report_file%.txt}.json written" \
+        || echo "[report] WARNING: json conversion failed" >&2
 
     # Best-effort: keep run-summary.md/html current after every run so it
     # never needs a separate `make report-table` to catch up. Failure here

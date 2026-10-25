@@ -284,3 +284,31 @@ three nodes with the harness key, GitHub access with the Pages key).
   `vox/mattx-testsuite-reports`.
 * The EESSI suites can run for hours; check the runner's job timeout before
   relying on a full run (`runner.timeout` in `/etc/forgejo-runner-mattx/config.yml`).
+
+## 9. Reporting: JSON, CDEvents, cdviz
+
+Every test run leaves four files in `reports/` (all produced by `auto_report_wrap` in `scripts/lib.sh`):
+
+| file | what |
+|---|---|
+| `<label>-<distro>-<ts>.txt` | the transcript (unchanged) |
+| `….times` | epoch + line for every `[PASS]`/`[FAIL]`, so checks get timestamps and durations |
+| `….json` | `mattx-test-run/1`: suite, distro, outcome, counts, mattx commit/source/branch, kernels, glibc, CI run URL, one entry per case (id = text before the first `:`; outcome; duration) |
+| `run-summary.json` | index of all runs (`report-to-json.py --all`, written by `publish-pages.sh`) |
+
+`publish-pages.sh` publishes the JSON next to each transcript on Pages (`runs/<date>/<name>.json`) together with
+`<name>.cdevents.ndjson` (the same run as CDEvents) and `run-summary.json` at the site root.
+
+CDEvents (`scripts/emit-cdevents.py`, CDEvents spec 0.4 testing events): `testSuiteRun` started/finished per run,
+`testCaseRun` started/finished per check (a failing line becomes the `reason`), `testOutput` published (link to
+the transcript). Event ids are deterministic, so re-sending is harmless. The events validate against the spec's
+JSON schemas (`cdevents/spec` v0.4.1).
+
+Sending to cdviz (`scripts/send-cdevents.sh`, called by `publish-pages.sh`):
+repo secrets `CDVIZ_URL` (the collector's `…/webhook/cdevents`) and `CDVIZ_API_KEY` (its `X-Api-Key`).
+Unset = skipped. State is `reports/.cdevents-sent`; the first run only marks the existing reports as sent
+(`CDVIZ_BACKFILL=1` replays them). A failed POST is retried by the next publish and never fails the job.
+
+Try it without touching a real collector: `ci/cdviz-dev/compose.yaml` is a local stack (Timescale, collector with
+the same config shape as puppetry's `profile_cdviz_collector`, Grafana with the cdviz dashboards). Offline check
+of the JSON/event code: `scripts/selftest-reporting.sh`.

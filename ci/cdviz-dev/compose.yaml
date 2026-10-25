@@ -1,0 +1,40 @@
+# Throwaway local cdviz (Postgres/Timescale + collector + Grafana with the cdviz dashboards), localhost only.
+# Same collector config shape as puppetry profile_cdviz_collector. CDVIZ_SRC = checkout of cdviz-dev/cdviz.
+#   podman-compose -f ci/cdviz-dev/compose.yaml -p cdvizdev up -d     # grafana :13000, collector :18090
+#   CDVIZ_URL=http://127.0.0.1:18090/webhook/cdevents CDVIZ_API_KEY=localdevkey-0123456789 scripts/send-cdevents.sh
+services:
+  postgres:
+    image: docker.io/timescale/timescaledb-ha:pg18
+    shm_size: 128mb
+    environment: {POSTGRES_USER: cdviz, POSTGRES_PASSWORD: postgres-password, POSTGRES_DB: cdviz}
+    healthcheck: {test: "pg_isready -U cdviz -d cdviz", interval: 5s, timeout: 5s, retries: 20}
+    ports: ["127.0.0.1:15432:5432"]
+  migrate:
+    image: ghcr.io/cdviz-dev/cdviz-db-migration:latest
+    command: ["-database","postgres://cdviz:postgres-password@postgres:5432/cdviz?sslmode=disable&options=-c%20search_path%3Dpublic","-path","/migrations/","up"]
+    depends_on: {postgres: {condition: service_healthy}}
+  collector:
+    image: ghcr.io/cdviz-dev/cdviz-collector:latest
+    command: ["connect","-vv","--config","/etc/collector.toml","--disable-otel"]
+    volumes: ["./collector.toml:/etc/collector.toml:ro,z"]
+    ports: ["127.0.0.1:18090:8090"]
+    depends_on: {postgres: {condition: service_healthy}, migrate: {condition: service_completed_successfully}}
+  grafana:
+    image: docker.io/grafana/grafana-oss:13.0.2
+    environment:
+      - GF_PLUGINS_PREINSTALL_SYNC=volkovlabs-echarts-panel,volkovlabs-form-panel,volkovlabs-table-panel,cdviz-executiontable-panel@1.2.4@https://github.com/cdviz-dev/cdviz-executiontable-panel/releases/download/v1.2.4/cdviz-executiontable-panel-1.2.4.zip
+      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=cdviz-executiontable-panel
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - CDVIZ_RO_POSTGRES_HOST=postgres
+      - CDVIZ_RO_POSTGRES_PORT_NUMBER=5432
+      - CDVIZ_RO_POSTGRES_USER=cdviz
+      - CDVIZ_RO_POSTGRES_PASSWORD=postgres-password
+      - CDVIZ_RO_POSTGRES_DB=cdviz
+    ports: ["127.0.0.1:13000:3000"]
+    volumes:
+      - ${CDVIZ_SRC:-/home/src/cdviz}/cdviz-grafana/datasources:/etc/grafana/provisioning/datasources:ro,z
+      - ${CDVIZ_SRC:-/home/src/cdviz}/cdviz-grafana/dashboards:/var/provisioning/dashboards:ro,z
+      - ${CDVIZ_SRC:-/home/src/cdviz}/demos/stack-compose/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro,z
+    depends_on: {postgres: {condition: service_healthy}}
