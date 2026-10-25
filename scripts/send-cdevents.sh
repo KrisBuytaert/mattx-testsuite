@@ -33,7 +33,7 @@ import json, sys
 r = json.load(open(sys.argv[1]))
 sys.exit(0 if r["completed"] or r["counts"]["failed"] else 1)
 PY
-    if scripts/emit-cdevents.py "$json" --post "$CDVIZ_URL" --report-url-base "$BASE" >/dev/null; then
+    if scripts/emit-cdevents.py "$json" --post "$CDVIZ_URL" --report-url-base "$BASE" --siblings reports >/dev/null; then
         echo "$name" >> "$STATE"; sent=$((sent+1))
     else
         failed=$((failed+1))

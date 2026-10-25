@@ -148,7 +148,8 @@ def convert(path):
             "kernels": kernels,
             "glibc": read_glibc(path),
         },
-        "ci": {"run_url": ci_url},
+        "ci": {"run_url": ci_url, "run_id": run_id, "run_number": os.environ.get("GITHUB_RUN_NUMBER"),
+               "workflow": os.environ.get("GITHUB_WORKFLOW")} if ci_url else {"run_url": None},
         "cases": cases,
     }
 
