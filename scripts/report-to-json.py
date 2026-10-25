@@ -121,10 +121,13 @@ def convert(path):
     branch = source.split("@", 1)[1] if source and "@" in source else None
     kernels = r["kernels"]
     uniq = sorted(set(kernels.values()))
-    server = os.environ.get("GITHUB_SERVER_URL")
+    # the runner's GITHUB_SERVER_URL is the internal http://127.0.0.1:3020; a link people can open needs the
+    # public name (CDVIZ_FORGE_URL), and Forgejo's run page is numbered by run_number, not by the run id
+    server = os.environ.get("CDVIZ_FORGE_URL", "https://forgejo.lab.kribu.be").rstrip("/")
     repo = os.environ.get("GITHUB_REPOSITORY")
     run_id = os.environ.get("GITHUB_RUN_ID")
-    ci_url = f"{server}/{repo}/actions/runs/{run_id}" if server and repo and run_id else None
+    run_no = os.environ.get("GITHUB_RUN_NUMBER")
+    ci_url = f"{server}/{repo}/actions/runs/{run_no}" if repo and run_id and run_no else None
 
     return {
         "schema": SCHEMA,

@@ -22,7 +22,7 @@ printf '1793000001.5\t[PASS] demo-1\n1793000007.0\t[FAIL] demo-2\n1793000008.0\t
 cp "$T/demo-alma-20261025-100000.txt" "$T/other-alma-20261025-100500.txt"
 sed -i 's/FAIL/PASS/; s/2 passed, 1 failed/3 passed, 0 failed/' "$T/other-alma-20261025-100500.txt"
 for n in demo-alma-20261025-100000 other-alma-20261025-100500; do
-    GITHUB_SERVER_URL=https://forge.example GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=42 GITHUB_RUN_NUMBER=7 GITHUB_WORKFLOW=mattx-ci \
+    CDVIZ_FORGE_URL=https://forge.example GITHUB_SERVER_URL=http://127.0.0.1:3020 GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=42 GITHUB_RUN_NUMBER=7 GITHUB_WORKFLOW=mattx-ci \
         ./report-to-json.py "$T/$n.txt" >/dev/null
 done
 ./emit-cdevents.py "$T/demo-alma-20261025-100000.json" --siblings "$T" --ndjson "$T/ci.ndjson"
@@ -47,7 +47,7 @@ ps = [e for e in ci if e["context"]["type"].startswith("dev.cdevents.pipelinerun
 assert len(pf) == 1 and len(ps) == 1, (len(pf), len(ps))
 assert pf[0]["subject"]["id"].endswith("/ci/42") and pf[0]["subject"]["content"]["outcome"] == "failure", pf[0]
 assert pf[0]["subject"]["content"]["pipelineName"] == "mattx-ci" and "demo-alma" in pf[0]["subject"]["content"]["errors"]
-assert pf[0]["subject"]["content"]["url"] == "https://forge.example/o/r/actions/runs/42"
+assert pf[0]["subject"]["content"]["url"] == "https://forge.example/o/r/actions/runs/7"
 sr = next(e for e in ci if e["context"]["type"].startswith("dev.cdevents.testsuiterun.started"))
 assert sr["customData"]["links"][0]["subject"]["id"] == pf[0]["subject"]["id"], sr["customData"]
 print("selftest-reporting: ok (%d events)" % len(ev))
