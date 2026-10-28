@@ -85,6 +85,9 @@ jobs:
           git --no-pager -C "$S" log --oneline -1
           echo "source: $repo@$branch"
 
+      - name: Node health (reboot nodes that loaded mattx.ko too often since boot)
+        run: cd "$H" && scripts/node-health.sh alma
+
       - name: Build and deploy to the nodes
         run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '1.9-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
 
