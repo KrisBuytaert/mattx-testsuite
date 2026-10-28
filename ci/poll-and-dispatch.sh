@@ -38,7 +38,7 @@ tests=$(git ls-remote "$TEST_URL" refs/heads/master | cut -f1)
 
 # tracked.conf from GitHub master (so a new branch needs no deploy); the copy next to
 # this script, then the two upstream branches, if GitHub is unreachable.
-conf=$(curl -fsS --max-time 20 "$TRACKED_URL" 2>/dev/null || cat "$HERE/tracked.conf" 2>/dev/null || printf 'brainmatt/mattx 1.9-dev\nbrainmatt/mattx main\n')
+conf=$(curl -fsS --max-time 20 "$TRACKED_URL" 2>/dev/null || cat "$HERE/tracked.conf" 2>/dev/null || printf 'brainmatt/mattx 2.0-dev\nbrainmatt/mattx main\n')
 
 # Has the PR from this fork branch been merged upstream? (unauthenticated API, a few calls an hour)
 merged_upstream() {
