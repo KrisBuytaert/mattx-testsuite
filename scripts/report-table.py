@@ -32,6 +32,8 @@ COMMIT_RE = re.compile(r"^mattx commit:\s*(\S+)\s*$")
 # "mattx source: owner/repo@branch" -- written by the CI so a run on a fork branch is
 # told apart from one on upstream 1.9-dev/main (absent in older reports).
 SOURCE_RE = re.compile(r"^mattx source:\s*(\S+)\s*$")
+# ssh to a node failed (hung / overloaded / rebooting node)
+UNREACHABLE_RE = re.compile(r"Connection timed out during banner exchange|ssh: connect to host .* (timed out|refused)|No route to host")
 KERNEL_RE = re.compile(r"^(\S+)\s+kernel:\s*(\S+)\s*$")
 # Printed by every test script's own final tally line ("Results: N passed, M
 # failed", "DSM Results: ...", "Stale-Link Results: ..."). Its absence means
@@ -57,23 +59,31 @@ def parse_report(path):
     commit = None
     source = None
     kernels = {}
+    unreachable = 0
     assertions = []  # (status, message) in file order
     completed = False
     with open(path, "r", errors="replace") as f:
         for line in f:
             line = line.rstrip("\n")
+            # a banner is printed again by every suite of a combined run; when a node stops answering
+            # in between, the later banners say "unknown" -- the first known value stays
             m = COMMIT_RE.match(line)
             if m:
-                commit = m.group(1)
+                if m.group(1) != "unknown" or commit is None:
+                    commit = m.group(1)
                 continue
             m = SOURCE_RE.match(line)
             if m:
-                source = m.group(1)
+                if m.group(1) != "unknown" or source is None:
+                    source = m.group(1)
                 continue
             m = KERNEL_RE.match(line)
             if m:
-                kernels[m.group(1)] = m.group(2)
+                if m.group(2) != "unknown" or m.group(1) not in kernels:
+                    kernels[m.group(1)] = m.group(2)
                 continue
+            if UNREACHABLE_RE.search(line):
+                unreachable += 1
             m = TAG_RE.match(line)
             if m:
                 assertions.append((m.group(1), m.group(2)))
@@ -99,6 +109,7 @@ def parse_report(path):
         "commit": commit,
         "source": source,
         "kernels": kernels,
+        "unreachable": unreachable,
         "assertions": assertions,
         "completed": completed,
     }

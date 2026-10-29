@@ -140,6 +140,7 @@ def convert(path):
         "duration_s": round(end - start, 1) if dur_known else None,
         "outcome": outcome,
         "completed": r["completed"],
+        "node_unreachable_lines": r["unreachable"],
         "counts": {"total": len(cases), "passed": len(cases) - fails, "failed": fails},
         "mattx": {
             "commit": r["commit"],
