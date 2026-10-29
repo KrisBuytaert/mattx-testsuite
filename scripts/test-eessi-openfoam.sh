@@ -217,7 +217,8 @@ if run_on "$NODE1" "
     chmod -R u+w .
     foamDictionary -entry endTime -set 20 system/controlDict
     foamDictionary -entry writeInterval -set 1000 system/controlDict
-    blockMesh 2>&1 | tee log.blockMesh
+    # OpenFOAM 11's pitzDaily ships no system/blockMeshDict; its Allrun points blockMesh at the shared one
+    if [ -f system/blockMeshDict ]; then blockMesh 2>&1 | tee log.blockMesh; else blockMesh -dict \$FOAM_TUTORIALS/resources/blockMesh/pitzDaily 2>&1 | tee log.blockMesh; fi
     timeout 120 simpleFoam 2>&1 | tee log.simpleFoam
     grep -q '^Time = ' log.simpleFoam
 " 2>&1; then
@@ -257,7 +258,7 @@ else
         foamDictionary -entry endTime -set 5000 system/controlDict
         foamDictionary -entry writeInterval -set 100000 system/controlDict
         foamDictionary -entry runTimeModifiable -set false system/controlDict
-        blockMesh > log.blockMesh 2>&1
+        if [ -f system/blockMeshDict ]; then blockMesh > log.blockMesh 2>&1; else blockMesh -dict \$FOAM_TUTORIALS/resources/blockMesh/pitzDaily > log.blockMesh 2>&1; fi
     "
 
     echo "  Starting simpleFoam on $NODE1 -- slow/long migration target..."

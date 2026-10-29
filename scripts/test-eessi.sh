@@ -40,9 +40,29 @@ Nextflow:$SCRIPT_DIR/test-eessi-nextflow.sh
 
 RESULT_LINES=""
 
+# A node that stops answering ssh (hung or overloaded after a heavy suite) used to turn every later suite
+# into a cascade of module-load / "MattX not running" failures. Wait for the nodes before each suite; if one
+# never comes back, say so once and skip the suite instead.
+wait_nodes() {
+    local n
+    for n in "$NODE1" "$NODE2"; do
+        for _ in $(seq 1 60); do
+            timeout 15 ssh $SSH_OPTS -o ConnectTimeout=10 "$SSH_USER@$(node_ip "$n")" true >/dev/null 2>&1 && continue 2
+            sleep 5
+        done
+        echo "node $n unreachable for 5 min"; return 1
+    done
+}
+
 run_suite() {
     local name="$1" script="$2"
     echo ""
+    if ! wait_nodes; then
+        echo "[FAIL] eessi-nodes: a node is unreachable before the $name suite -- suite skipped"
+        TOTAL_FAIL=$((TOTAL_FAIL + 1)); ANY_SUITE_FAILED=1
+        RESULT_LINES="${RESULT_LINES}  ${name}: SKIPPED (node unreachable)\n"
+        return 0
+    fi
     echo "######################################"
     echo "# $name"
     echo "######################################"

@@ -197,6 +197,24 @@ echo "=== Test 2: MNIST smoke test (functional, CPU-only) ==="
 echo "  Syncing demo scripts to $NODE1..."
 rsync_to "$TEST_DIR/eessi-demo/TensorFlow/" "$NODE1" "/tmp/eessi-tensorflow/"
 
+# keras downloads mnist.npz on first use; a flaky download made tensorflow-2 fail (run 127). Fetch it once on
+# the host (cached across runs) and seed the node, so the test no longer depends on the node's internet.
+MNIST_CACHE="${EESSI_CACHE:-$HOME/.cache/mattx-testsuite}/mnist.npz"
+if [ ! -s "$MNIST_CACHE" ]; then
+    mkdir -p "$(dirname "$MNIST_CACHE")"
+    curl -fsSL --retry 3 -m 120 -o "$MNIST_CACHE.tmp" https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz \
+        && mv "$MNIST_CACHE.tmp" "$MNIST_CACHE" || rm -f "$MNIST_CACHE.tmp"
+fi
+if [ -s "$MNIST_CACHE" ]; then
+    run_on "$NODE1" "mkdir -p ~/.keras/datasets" >/dev/null 2>&1 || true
+    rsync_to "$MNIST_CACHE" "$NODE1" ".keras/datasets/mnist.npz" >/dev/null 2>&1 \
+        && echo "  MNIST dataset seeded on $NODE1 (no download needed)" || echo "  [warn] could not seed the MNIST dataset on $NODE1"
+fi
+
+# The VMs have ~1.7 GB of RAM: the demo's float64 conversion of MNIST (x / 255.0) plus TensorFlow gets the python
+# killed by the OOM killer (rc 137) on a busy node. Run a float32 copy on the node; the demo in the repo is untouched.
+run_on "$NODE1" "sed -i 's#x_train, x_test = x_train / 255.0, x_test / 255.0#x_train, x_test = x_train.astype(\"float32\") / 255.0, x_test.astype(\"float32\") / 255.0#' /tmp/eessi-tensorflow/TensorFlow-2.x_mnist-test.py" >/dev/null 2>&1 || true
+
 echo "  Running MNIST smoke test on $NODE1 ($(node_ip "$NODE1"))..."
 if run_on "$NODE1" "
     set -e
