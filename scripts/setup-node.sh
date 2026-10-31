@@ -162,4 +162,13 @@ done
 
 run_on "$NODE" "sudo mkdir -p /mattxfs"
 
+# Enrol the node with the OpenVox puppetserver on fedora-lab (puppetry, bead test-ppj): monitoring and
+# config come from there. Idempotent; prints the sign command if the cert is not signed yet. ENROL=0 skips.
+ENROL_SCRIPT="${ENROL_SCRIPT:-/home/src/puppetry/scripts/enrol-node.sh}"
+if [ "${ENROL:-1}" = 1 ] && [ -f "$ENROL_SCRIPT" ]; then
+    echo "[setup] enrolling $NODE with the puppetserver..."
+    rsync_to "$ENROL_SCRIPT" "$NODE" "/tmp/enrol-node.sh"
+    run_on "$NODE" "sudo bash /tmp/enrol-node.sh $DISTRO $NODE_NUM" || echo "[setup] WARNING: enrolment of $NODE failed (continuing)" >&2
+fi
+
 echo "[setup] $NODE ready"
