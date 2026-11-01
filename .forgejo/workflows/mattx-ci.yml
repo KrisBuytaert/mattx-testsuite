@@ -24,9 +24,9 @@ on:
         required: false
         default: "brainmatt/mattx"
       mattx_ref:
-        description: "mattx branch to test (1.9-dev, main, or a fork branch)"
+        description: "mattx branch to test (2.0-dev, main, or a fork branch)"
         required: false
-        default: "1.9-dev"
+        default: "2.0-dev"
       mattx_sha:
         description: "exact mattx commit (overrides mattx_ref)"
         required: false
@@ -75,7 +75,7 @@ jobs:
         run: |
           S="$HOME/mattx-src"
           repo="${{ inputs.mattx_repo || 'brainmatt/mattx' }}"
-          branch="${{ inputs.mattx_ref || '1.9-dev' }}"
+          branch="${{ inputs.mattx_ref || '2.0-dev' }}"
           [ -d "$S/.git" ] || git clone -q https://github.com/brainmatt/mattx "$S"
           # fetch the branch from the requested repo (upstream or a fork) into a fixed ref
           git -C "$S" fetch -q --force "https://github.com/$repo" "refs/heads/$branch:refs/remotes/ci/current"
@@ -89,7 +89,7 @@ jobs:
         run: cd "$H" && scripts/node-health.sh alma
 
       - name: Build and deploy to the nodes
-        run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '1.9-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
+        run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '2.0-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
 
       - name: Functional suites (run-tests, dsm, stale-link, mesi3, unload, mattxfs-umount, admin-input, threads, epoll-threads)
         continue-on-error: true
@@ -116,7 +116,7 @@ jobs:
     steps:
       - id: g
         run: |
-          b="${{ inputs.mattx_ref || '1.9-dev' }}"
+          b="${{ inputs.mattx_ref || '2.0-dev' }}"
           H=/var/lib/forgejo-runner-mattx/harness
           reason=ok
           if [ "${{ inputs.run_eessi }}" = false ]; then reason=disabled
@@ -187,7 +187,7 @@ jobs:
       - name: Record tested pair
         run: |
           H=/var/lib/forgejo-runner-mattx/harness
-          b=$("$H/ci/branch-key.sh" "${{ inputs.mattx_repo || 'brainmatt/mattx' }}" "${{ inputs.mattx_ref || '1.9-dev' }}")
+          b=$("$H/ci/branch-key.sh" "${{ inputs.mattx_repo || 'brainmatt/mattx' }}" "${{ inputs.mattx_ref || '2.0-dev' }}")
           echo "$(git -C "$HOME/mattx-src" rev-parse HEAD) $(cat "$H/.testsuite-sha")" > "$HOME/last-tested.$b"
           # Always recorded (so a broken deploy is not retried every poll); the result is kept alongside.
           echo "functional=${{ needs.functional.result }} eessi=${{ needs.eessi.result }} gate=${{ needs.gate.outputs.reason }}" > "$HOME/last-result.$b"
@@ -204,4 +204,4 @@ jobs:
         run: |
           H=/var/lib/forgejo-runner-mattx/harness
           # the checkout is not needed; the script lives in the persistent harness copy
-          H=$H "$H/ci/notify-telegram.sh" "${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '1.9-dev' }}" "${{ needs.functional.result }}" "${{ needs.eessi.result }}" "${{ github.run_number }}"
+          H=$H "$H/ci/notify-telegram.sh" "${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '2.0-dev' }}" "${{ needs.functional.result }}" "${{ needs.eessi.result }}" "${{ github.run_number }}"
