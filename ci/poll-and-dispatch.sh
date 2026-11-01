@@ -28,6 +28,13 @@ QUIET_HOURS="${QUIET_HOURS:-6}"
 REPO="${REPO:-vox/mattx-testsuite}"
 api() { curl -fsS ${FORGEJO_CA:+--cacert "$FORGEJO_CA"} -H "Authorization: token $FORGEJO_TOKEN" "$@"; }
 
+# A manual run (or any long job) on the test nodes holds this lock with flock; a CI run started in
+# the middle of it reboots the nodes under it (node-health) and redeploys MattX (test-zmo).
+LOCK="${CLUSTER_LOCK:-/tmp/mattx-cluster.lock}"
+if [ -e "$LOCK" ] && { exec 9<"$LOCK"; } 2>/dev/null; then
+    flock -n 9 || { echo "cluster lock $LOCK is held (manual run), skipping this tick"; exit 0; }
+fi
+
 active=$(api "$FORGEJO_URL/api/v1/repos/$REPO/actions/tasks?limit=20" | python3 -c '
 import json,sys
 print(sum(1 for t in json.load(sys.stdin).get("workflow_runs",[]) if t.get("status") in ("running","waiting","queued","blocked")))')
