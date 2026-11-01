@@ -5,7 +5,7 @@
 # writes to /proc/mattx/admin) and looks at the cluster afterwards.
 #
 # Scenarios (SIZES = burst sizes, default "2 4 8"; ROUNDS = repeats of M6, default 3):
-#   M1  burst forward   N migtest on node1, all migrated to node2 at once, then all must be hosted and RUNNING there
+#   M1  burst forward   N spinners on node1, all migrated to node2 at once, then all must be hosted and RUNNING there
 #   M2  fan-out         the same N, half to node2 and half to node3 at once      (Alma only: needs a third node)
 #   M3  crossing        N on node1 -> node2 while N on node2 -> node1, at once
 #   M4  burst return    recall all of them (`migrate <pid> home`) at once; all must be home and running, no guests left
@@ -71,14 +71,22 @@ health() {
     [ $ok = 1 ] && pass "$tag: no reboot, kdump or oops on any node"
 }
 
-# N migtest "workers" on node $1 (migtest forks: the child does the work and is what gets migrated)
+# The workload is a plain CPU spinner, not migtest: every migtest binds UDP port 12345 and opens the same
+# file, so only the first of several migtest processes can run normally (the rest stall on the failed
+# bind), which makes "does the surrogate use CPU" meaningless for more than one.
+build_workload() {
+    local n
+    for n in $NODES; do
+        rto "$n" "printf 'int main(void){volatile unsigned long x=0; for(;;) x++;}\\n' > /tmp/spin.c && gcc -O0 -o /tmp/spin /tmp/spin.c" >/dev/null 2>&1
+    done
+}
+# N spinners on node $1
 start_workers() {
     local node="$1" n="$2"
-    rto "$node" "for i in \$(seq 1 $n); do nohup migtest >/dev/null 2>&1 & done; sleep 2; true" >/dev/null 2>&1
+    rto "$node" "for i in \$(seq 1 $n); do nohup /tmp/spin >/dev/null 2>&1 & done; sleep 1; true" >/dev/null 2>&1
 }
-# pids of the working children (a migtest whose parent is a migtest)
 worker_pids() {
-    rto "$1" "ps -eo pid,ppid,comm --no-headers | awk '\$3==\"migtest\"{c[\$1]=1;p[\$1]=\$2} END{for(i in p) if(p[i] in c) print i}' | sort -n" 2>/dev/null
+    rto "$1" "pgrep -x spin | sort -n" 2>/dev/null
 }
 # fire the migrations of the given pids from node $1 to node id $2 at the same moment
 burst() {
@@ -109,7 +117,7 @@ for p in $(echo "$a" | cut -d" " -f1); do x=$(echo "$a" | awk -v p=$p "\$1==p{pr
 # deputies on the home node run in state T by design; what matters is that nobody is a zombie / vanished
 cleanup() {
     for n in $NODES; do
-        rto "$n" "sudo pkill -9 -x migtest; sudo pkill -9 mattx-stub; true" >/dev/null 2>&1
+        rto "$n" "sudo pkill -9 -x spin; sudo pkill -9 mattx-stub; true" >/dev/null 2>&1
     done
     sleep 8
     for n in $NODES; do rto "$n" "echo 'balancer 0' | sudo tee /proc/mattx/admin >/dev/null" >/dev/null 2>&1; done
@@ -123,10 +131,32 @@ leftovers() {   # $1 = tag: nothing hosted or remote anywhere once everything is
     [ $bad = 0 ] && pass "$tag: no guests or remote entries left after cleanup" || fail "$tag: guests or remote entries left after cleanup"
 }
 
+# Start from a clean cluster: other suites (run-tests leaves a migrated servertestpoll behind) can leave
+# guests or remote entries that make every exact "N hosted" count wrong. Kill the known workloads and,
+# if anything is still registered, restart MattX on all nodes.
+ensure_clean() {
+    local n f stale=0 i cnt
+    cleanup
+    for n in $NODES; do
+        rto "$n" "sudo pkill -9 -x servertestpoll; sudo pkill -9 -x migtest; sudo pkill -9 -x epoll_threads; sudo pkill -9 -x ioloop; true" >/dev/null 2>&1
+    done
+    sleep 5
+    for n in $NODES; do for f in guests remote; do [ "$(lines "$n" "$f")" = 0 ] || stale=1; done; done
+    if [ $stale = 1 ]; then
+        echo "stale guests or remote entries left by an earlier run: restarting MattX on all nodes"
+        cnt=$(echo $NODES | wc -w)
+        for i in $(seq 1 "$cnt"); do "$SCRIPT_DIR/start-mattx.sh" "$DISTRO" "$i" >/dev/null 2>&1; done
+        sleep 5
+        init_cluster "$DISTRO" >/dev/null 2>&1
+        ids
+    fi
+}
+
 trap cleanup EXIT
+build_workload
 ids
 echo "node ids: $(for n in $NODES; do echo -n "$n=${ID[$n]} "; done)"
-cleanup
+ensure_clean
 snapshot
 
 # --- M0 baseline: one at a time (timing only)
@@ -158,8 +188,8 @@ for N in $SIZES; do
     w1="$(wait_lines "$NODE1" remote 0)"; w2="$(wait_lines "$NODE2" guests 0)"; el="$(echo "$(date +%s.%N) - $t0" | bc | cut -c1-5)"
     if [ "$w1" = -1 ] || [ "$w2" = -1 ]; then fail "M4 N=$N: recall incomplete (remote $(lines "$NODE1" remote), guests on $NODE2 $(lines "$NODE2" guests))"
     else pass "M4 N=$N: all $N recalled home"; echo "time: M4 burst return, N=$N: all home after $el s"; fi
-    nrun=$(rto "$NODE1" "ps -eo stat,comm --no-headers | awk '\$2==\"migtest\" && \$1!~/^[TZ]/' | wc -l" 2>/dev/null | tail -1)
-    [ "${nrun:-0}" -ge "$N" ] && pass "M4 N=$N: the recalled processes run on $NODE1 again" || fail "M4 N=$N: only ${nrun:-0} migtest processes running on $NODE1 after recall"
+    nrun=$(rto "$NODE1" "ps -eo stat,comm --no-headers | awk '\$2==\"spin\" && \$1!~/^[TZ]/' | wc -l" 2>/dev/null | tail -1)
+    [ "${nrun:-0}" -ge "$N" ] && pass "M4 N=$N: the recalled processes run on $NODE1 again" || fail "M4 N=$N: only ${nrun:-0} spin processes running on $NODE1 after recall"
     health "M4 N=$N"
     cleanup; leftovers "M1/M4 N=$N"
 done
