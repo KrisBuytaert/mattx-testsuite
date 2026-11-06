@@ -40,6 +40,8 @@
 #         Pass signal is the FULL count sequence (before + after migration)
 #         being strictly continuous (no restart, no gap, no duplicate) --
 #         analogous to test-dsm.sh's loop_sequence()/is_continuous() check.
+# Test 4: the same with a short client (MPI_SHORT_COUNT, default 70): the migrated job must run to the end,
+#         the master must get the result and mpirun must exit 0 (mattx#15).
 set -euo pipefail
 
 DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed>}"
@@ -341,6 +343,81 @@ else
         pass "mpi-3: no kernel oops on $NODE2"
     else
         fail "mpi-3: kernel oops on $NODE2"
+    fi
+fi
+
+# ---- Test 4: the migrated job runs to completion and mpirun exits 0 ----
+# Test 3 only checks that counting continues. mattx#15: after the migration the surrogate's exit used to
+# leave mpirun hanging (inotify), then to end with exit 9 (the Funeral SIGKILLed the Deputy), and with the
+# current 2.0-dev the master still sometimes spins in MPI_Recv and never sees the result. A short client
+# (counts to MPI_SHORT_COUNT instead of 1000) lets this finish within the CI time budget.
+echo ""
+echo "=== Test 4: migrated mpitest runs to completion, mpirun exits 0 ==="
+if [ -z "$NODE1_ID" ] || [ -z "$NODE2_ID" ]; then
+    fail "mpi-4: MattX not running on $NODE1/$NODE2 -- run 'make ${DISTRO}cluster' first"
+else
+    SHORT_COUNT="${MPI_SHORT_COUNT:-70}"
+    SHORT_DIR=/tmp/mpitest-short
+    SHORT_OK=1
+    for NODE in "$NODE1" "$NODE2"; do
+        run_on "$NODE" "
+            $(mpich_env)
+            rm -rf $SHORT_DIR && cp -r ${MPITEST_DIR} $SHORT_DIR && cd $SHORT_DIR
+            sed -i 's/i <= 1000/i <= $SHORT_COUNT/; s/final_result = 1000/final_result = $SHORT_COUNT/' mpitest-client.c
+            grep -q 'i <= $SHORT_COUNT' mpitest-client.c || exit 1
+            make >/dev/null 2>&1
+            test -x ./mpitest && test -x ./mpitest-client
+        " || SHORT_OK=0
+    done
+    if [ "$SHORT_OK" -ne 1 ]; then
+        fail "mpi-4: could not build the short mpitest client on both nodes"
+    else
+        DMESG_CURSOR_NODE1=$(dmesg_cursor "$NODE1")
+        DMESG_CURSOR_NODE2=$(dmesg_cursor "$NODE2")
+        run_on "$NODE1" "pkill -9 -f '[m]pitest' 2>/dev/null || true; pkill -9 -f '[h]ydra_pmi' 2>/dev/null || true"
+        # separate call: a remote command line that contains "mpitest" would be killed by its own pkill -f
+        run_on "$NODE1" "rm -f /tmp/mpitest.log /tmp/mpi_rc"
+        run_on "$NODE1" "
+            $(mpich_env)
+            cd $SHORT_DIR
+            setsid nohup bash -c 'env ${MPICH_NO_LOCAL:+MPICH_NO_LOCAL=$MPICH_NO_LOCAL} mpirun ${MPI_LAUNCHER--launcher fork} -np 1 ./mpitest; echo \$? > /tmp/mpi_rc' </dev/null >/tmp/mpitest_short_run.log 2>&1 &
+            disown
+        "
+        for _ in $(seq 1 30); do
+            sleep 3
+            run_on "$NODE1" "grep -q 'Counting\.\.\. [3-9]' /tmp/mpitest.log 2>/dev/null" && break
+        done
+        SHORT_PID=$(run_on "$NODE1" "pgrep -x mpitest-client 2>/dev/null | head -1" || true)
+        if [ -z "$SHORT_PID" ]; then
+            fail "mpi-4: could not find a running mpitest-client PID on $NODE1 to migrate"
+        else
+            do_migrate "mpitest-client" "$SHORT_PID" "$NODE1" "$NODE2" "$NODE2_ID"
+            # counting takes ~SHORT_COUNT s plus the spawn handshake; allow the same again for the exit
+            FIN_TIMEOUT="${MPI_FINISH_TIMEOUT:-$(( SHORT_COUNT * 2 + 60 ))}"
+            ELAPSED=0; MPI_RC=""
+            while [ "$ELAPSED" -lt "$FIN_TIMEOUT" ]; do
+                sleep 5
+                ELAPSED=$((ELAPSED + 5))
+                MPI_RC=$(run_on "$NODE1" "cat /tmp/mpi_rc 2>/dev/null" || true)
+                [ -n "$MPI_RC" ] && break
+            done
+            GOT_RESULT=$(run_on "$NODE1" "grep -c 'Received final result from client' /tmp/mpitest_short_run.log 2>/dev/null" || true)
+            if [ "$MPI_RC" = "0" ] && [ "${GOT_RESULT:-0}" -ge 1 ]; then
+                pass "mpi-4: migrated job finished, master got the result, mpirun exit code 0 (after ${ELAPSED}s)"
+            elif [ -z "$MPI_RC" ]; then
+                fail "mpi-4: mpirun still running ${FIN_TIMEOUT}s after the migration (result at master: ${GOT_RESULT:-0}) -- mattx#15, master waits in MPI_Recv for the result"
+                run_on "$NODE1" "ps -eo pid,stat,wchan:24,comm | grep -E 'mpi|hydra'; tail -n 5 /tmp/mpitest_short_run.log" | sed 's/^/    /' || true
+            else
+                fail "mpi-4: mpirun exit code $MPI_RC, result at master: ${GOT_RESULT:-0} -- mattx#15 (exit 9 = the Funeral SIGKILLed the Deputy)"
+                run_on "$NODE1" "grep -E 'EXIT CODE|BAD TERMINATION' /tmp/mpitest_short_run.log" | sed 's/^/    /' || true
+            fi
+        fi
+        run_on "$NODE1" "pkill -9 -f '[m]pitest' 2>/dev/null || true; pkill -9 -f '[h]ydra_pmi' 2>/dev/null || true"
+        if no_new_oops "$NODE1" "$DMESG_CURSOR_NODE1" && no_new_oops "$NODE2" "$DMESG_CURSOR_NODE2"; then
+            pass "mpi-4: no kernel oops on $NODE1/$NODE2"
+        else
+            fail "mpi-4: kernel oops on $NODE1 or $NODE2"
+        fi
     fi
 fi
 
