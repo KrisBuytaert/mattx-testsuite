@@ -405,7 +405,11 @@ else
             if [ "$MPI_RC" = "0" ] && [ "${GOT_RESULT:-0}" -ge 1 ]; then
                 pass "mpi-4: migrated job finished, master got the result, mpirun exit code 0 (after ${ELAPSED}s)"
             elif [ -z "$MPI_RC" ]; then
-                fail "mpi-4: mpirun still running ${FIN_TIMEOUT}s after the migration (result at master: ${GOT_RESULT:-0}) -- mattx#15, master waits in MPI_Recv for the result"
+                if [ "${GOT_RESULT:-0}" -ge 1 ]; then
+                    fail "mpi-4: mpirun still running ${FIN_TIMEOUT}s after the migration although the master got the result -- the migrated client never exits (surrogate left stopped?), mattx#15"
+                else
+                    fail "mpi-4: mpirun still running ${FIN_TIMEOUT}s after the migration, the master never got the result -- mattx#15, master waits in MPI_Recv"
+                fi
                 run_on "$NODE1" "ps -eo pid,stat,wchan:24,comm | grep -E 'mpi|hydra'; tail -n 5 /tmp/mpitest_short_run.log" | sed 's/^/    /' || true
             else
                 fail "mpi-4: mpirun exit code $MPI_RC, result at master: ${GOT_RESULT:-0} -- mattx#15 (exit 9 = the Funeral SIGKILLed the Deputy)"
