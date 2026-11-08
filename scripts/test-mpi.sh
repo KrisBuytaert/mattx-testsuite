@@ -210,6 +210,25 @@ for NODE in "$NODE1" "$NODE2"; do
         BUILD_OK=0
     fi
 done
+# MPI jobs that migrate need UCX >= 1.20.0 (mattx#64, mattx#15); say which UCX the build links, warn if older.
+for NODE in "$NODE1" "$NODE2"; do
+    UCXV=$(run_on "$NODE" "
+        $(mpich_env)
+        cd ${MPITEST_DIR}
+        lib=\$(ldd ./mpitest-client 2>/dev/null | awk '/libucp/{print \$3; exit}')
+        [ -n \"\$lib\" ] || { echo none; exit 0; }
+        d=\$(dirname \"\$lib\")
+        LD_LIBRARY_PATH=\$d \$(ls \$d/../bin/ucx_info 2>/dev/null || command -v ucx_info) -v 2>/dev/null | awk '/Library version/{print \$4}'
+    " 2>/dev/null | tail -1)
+    case "$UCXV" in
+        none|"") echo "  UCX on $NODE: not used by this MPICH build" ;;
+        *) echo "  UCX on $NODE: $UCXV"
+           if [ "$(printf '%s\n1.20.0\n' "$UCXV" | sort -V | head -1)" != 1.20.0 ]; then
+               echo "  WARNING: UCX $UCXV on $NODE is older than 1.20.0; migrated MPI jobs fail often with it (mattx#64, mattx#15)"
+           fi ;;
+    esac
+done
+
 if [ "$BUILD_OK" -eq 1 ]; then
     pass "mpi-1: mpitest + mpitest-client built on both nodes"
 else
