@@ -82,6 +82,8 @@ jobs:
             fi
           fi
           for n in "$N1" "$N2"; do virsh domstate "$n" | grep -q running || virsh start "$n"; done
+          # a freshly started VM has no network for a while; the build step would ssh into it at once
+          ( . scripts/lib.sh; for n in "$N1" "$N2"; do wait_for_ssh "$n"; done )
 
       - name: Build and deploy to the nodes
         run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '2.0-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-"$D"
@@ -162,6 +164,8 @@ jobs:
             fi
           fi
           for n in "$N1" "$N2"; do virsh domstate "$n" | grep -q running || virsh start "$n"; done
+          # a freshly started VM has no network for a while; the build step would ssh into it at once
+          ( . scripts/lib.sh; for n in "$N1" "$N2"; do wait_for_ssh "$n"; done )
 
       - name: Build and deploy to the nodes
         run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '2.0-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-"$D"
