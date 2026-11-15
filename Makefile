@@ -29,7 +29,7 @@ export MATTX_IMAGES_ROOT := $(IMAGES_ROOT)
         test-eessi-nextflow-alma test-eessi-nextflow-deb test-eessi-nextflow-ubu \
         test-eessi-osu-shm-alma test-eessi-osu-shm-deb test-eessi-osu-shm-ubu \
         test-mpi-alma test-mpi-deb test-mpi-ubu test-mpi-nompi-alma test-mpi-nompi-ubu test-mpi-fed test-mpi-nompi-fed test-unload-active-alma test-multi-migrate-alma \
-        test-dsm-alma test-dsm-deb test-dsm-ubu test-dsm-mesi3-alma \
+        test-dsm-alma test-dsm-deb test-dsm-ubu test-dsm-mesi3-alma test-dsm-rw-alma \
         test-stale-link-alma test-stale-link-deb test-stale-link-ubu test-unload-alma test-mattxfs-umount-alma test-admin-input-alma \
         start-alma start-alma3 start-deb start-ubu start \
         stop-alma stop-deb stop-ubu stop-fed stop \
@@ -385,6 +385,9 @@ test-dsm-alma: ensure-alma-running
 
 test-dsm-mesi3-alma: ensure-alma-running3
 	$(SCRIPTS)/test-dsm-mesi3.sh alma
+
+test-dsm-rw-alma: ensure-alma-running
+	$(SCRIPTS)/test-dsm-rw.sh alma
 
 test-dsm-deb: ensure-deb-running
 	$(SCRIPTS)/test-dsm.sh deb
