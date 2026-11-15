@@ -24,7 +24,10 @@ rsync_to "$MATTX_SRC" "$NODE1" "~/mattx/"
 # MATTX_SRC is a git worktree (its .git file points at a host-only path).
 STAMP_COMMIT="$(git -C "$MATTX_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 [ -n "$(git -C "$MATTX_SRC" status --porcelain 2>/dev/null)" ] && STAMP_COMMIT="$STAMP_COMMIT-dirty"
-run_on "$NODE1" "echo $STAMP_COMMIT > ~/mattx/.mattx-commit"
+# The label is only written AFTER the build and install succeeded. Until then it says the build is
+# incomplete, so a failed build (e.g. 4643346 on el10: modpost task_work_add undefined) can't leave the
+# nodes labelled with a commit whose code is not what runs.
+run_on "$NODE1" "echo 'BUILD-INCOMPLETE $STAMP_COMMIT' > ~/mattx/.mattx-commit"
 # Where the tree came from, shown in the report banner and the results table. CI passes
 # MATTX_SOURCE=owner/repo@branch (a fork branch is not upstream 1.9-dev); otherwise
 # derive it from the checkout.
@@ -32,7 +35,6 @@ if [ -z "${MATTX_SOURCE:-}" ]; then
     _b="$(git -C "$MATTX_SRC" branch --show-current 2>/dev/null)"
     MATTX_SOURCE="local@${_b:-detached}"
 fi
-run_on "$NODE1" "echo '$MATTX_SOURCE' > ~/mattx/.mattx-source"
 
 echo "[build] building on $NODE1..."
 run_on "$NODE1" "cd ~/mattx && make"
@@ -51,4 +53,6 @@ mattx_discovery_isolation "$DISTRO" "$NODE1"
 # /etc/mattx.conf (seen twice), silently running MattX on defaults.
 run_on "$NODE1" "sync"
 
+run_on "$NODE1" "echo $STAMP_COMMIT > ~/mattx/.mattx-commit"
+run_on "$NODE1" "echo '$MATTX_SOURCE' > ~/mattx/.mattx-source"
 echo "[build] done"

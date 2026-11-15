@@ -326,13 +326,46 @@ print_version_banner() {
     if [ -n "${NODE3:-}" ]; then
         echo "$NODE3 kernel: $(run_on "$NODE3" "uname -r" 2>/dev/null || echo "unknown")"
     fi
+    local rc=0 n
+    for n in "$NODE1" ${NODE2:-} ${NODE3:-}; do
+        check_module_identity "$n" || rc=1
+    done
     echo "=============================="
+    return "$rc"
+}
+
+# Does the loaded mattx.ko on a node match the one built on node1 (the tree deploy-mattx.sh copies out), and
+# is the commit label complete? Prints one "mattx module" line for the report banner. Returns 1 on a
+# MISMATCH or a BUILD-INCOMPLETE label, because every result after that would be about other code than the
+# banner names. Not loaded / no build to compare is only reported. SKIP_IDENTITY_CHECK=1 turns the failure off.
+check_module_identity() {
+    local node="$1" loaded built label
+    loaded="$(run_on "$node" "cat /sys/module/mattx/srcversion 2>/dev/null" 2>/dev/null || true)"
+    built="$(run_on "$node" "modinfo -F srcversion ~/mattx/mattx.ko 2>/dev/null" 2>/dev/null || true)"
+    label="$(run_on "$NODE1" "cat ~/mattx/.mattx-commit 2>/dev/null" 2>/dev/null || true)"
+    case "$node:$label" in
+        "$NODE1":BUILD-INCOMPLETE*)
+            echo "[FAIL] identity: the build on $NODE1 did not finish ($label): the nodes do not run what the label says"
+            [ -n "${SKIP_IDENTITY_CHECK:-}" ] || return 1 ;;
+    esac
+    if [ -z "$loaded" ]; then
+        echo "mattx module on $node: not loaded"
+    elif [ -z "$built" ]; then
+        echo "mattx module on $node: loaded $loaded (no built mattx.ko to compare)"
+    elif [ "$loaded" = "$built" ]; then
+        echo "mattx module on $node: loaded $loaded = built $built (OK)"
+    else
+        echo "mattx module on $node: loaded $loaded, built $built (MISMATCH)"
+        echo "[FAIL] identity: $node runs a different mattx.ko than the one built from ${label:-?}"
+        [ -n "${SKIP_IDENTITY_CHECK:-}" ] || return 1
+    fi
+    return 0
 }
 
 auto_report_wrap() {
     local label="$1"; shift
     if [ -n "${REPORT_ACTIVE:-}" ]; then
-        print_version_banner
+        print_version_banner || exit 1
         return 0
     fi
 

@@ -37,7 +37,25 @@ scripts/send-cdevents.sh || true
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export GIT_SSH_COMMAND="ssh -i $PAGES_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-git clone -q --branch gh-pages --depth 1 "$PAGES_REPO" "$work/site"
+# The lab link to github.com is not always up (run 259: "ssh: connect to host github.com port 22: Connection
+# timed out" failed a job whose suites had all run). Retry, and alternate with ssh over port 443
+# (ssh.github.com). A publish that still fails exits 75 with NOT PUBLISHED: the reports stay in reports/ and go
+# out with the next publish, which republishes everything. Callers treat 75 as "not published", not as a test failure.
+PAGES_REPO_443="${PAGES_REPO_443:-ssh://git@ssh.github.com:443/${PAGES_REPO#*:}}"
+with_retry() {          # with_retry <what> <cmd...>: try the normal URL and the 443 one alternately
+    local what="$1"; shift
+    local i
+    for i in 1 2 3 4 5 6; do
+        if [ $((i % 2)) -eq 1 ]; then url="$PAGES_REPO"; else url="$PAGES_REPO_443"; fi
+        "$@" && return 0
+        echo "[publish] $what failed (attempt $i/6, $url); retrying in $((i * ${PUBLISH_RETRY_SLEEP:-10})) s" >&2
+        sleep $((i * ${PUBLISH_RETRY_SLEEP:-10}))
+    done
+    return 1
+}
+not_published() { echo "NOT PUBLISHED: github.com unreachable; $1. The reports stay in reports/ and are published by the next run." >&2; exit 75; }
+_clone() { rm -rf "$work/site"; git clone -q --branch gh-pages --depth 1 "$url" "$work/site"; }
+with_retry "clone" _clone || not_published "clone failed"
 
 run="runs"   # per-report subdirs below, dated from each filename
 
@@ -68,5 +86,6 @@ if [ "$DRY" = 1 ]; then
     echo "dry run: staged copy in $dry"; exit 0
 fi
 git -c user.name="mattx-testsuite" -c user.email="noreply@percona.com" commit -q -m "Publish reports $(date -u +%Y-%m-%dT%H:%MZ)"
-git push -q origin gh-pages
+_push() { git push -q "$url" gh-pages; }
+with_retry "push" _push || not_published "push failed"
 echo "published"

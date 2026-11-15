@@ -109,7 +109,11 @@ jobs:
         env:
           CDVIZ_URL: ${{ secrets.CDVIZ_URL }}
           CDVIZ_API_KEY: ${{ secrets.CDVIZ_API_KEY }}
-        run: cd "$H" && scripts/publish-pages.sh
+        run: |
+          cd "$H"; rc=0; scripts/publish-pages.sh || rc=$?
+          # 75 = not published (github.com unreachable, retried): a warning, not a failed run; the next publish sends everything
+          if [ "$rc" = 75 ]; then echo "::warning::reports NOT PUBLISHED (github.com unreachable), they go out with the next run"; rc=0; fi
+          exit $rc
 
       - name: Telegram summary
         if: always()
@@ -191,7 +195,11 @@ jobs:
         env:
           CDVIZ_URL: ${{ secrets.CDVIZ_URL }}
           CDVIZ_API_KEY: ${{ secrets.CDVIZ_API_KEY }}
-        run: cd "$H" && scripts/publish-pages.sh
+        run: |
+          cd "$H"; rc=0; scripts/publish-pages.sh || rc=$?
+          # 75 = not published (github.com unreachable, retried): a warning, not a failed run; the next publish sends everything
+          if [ "$rc" = 75 ]; then echo "::warning::reports NOT PUBLISHED (github.com unreachable), they go out with the next run"; rc=0; fi
+          exit $rc
 
       - name: Telegram summary
         if: always()
