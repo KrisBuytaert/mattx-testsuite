@@ -6,6 +6,7 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
+set +e   # lib.sh sets -e: an unreachable node must be reported and skipped, not kill the script (exit 255 in runs 297-299)
 DISTRO="${1:?Usage: $0 <alma|deb|ubu|fed> [nodes...]}"; shift
 case "$DISTRO" in
     alma) DEFAULT="almanode1 almanode2 almanode3" ;; deb) DEFAULT="debnode1 debnode2" ;;
@@ -14,6 +15,20 @@ case "$DISTRO" in
 esac
 NODES="${*:-$DEFAULT}"; MAX="${MAX_LOADS:-1}"
 sshn() { local n="$1"; shift; timeout 60 ssh $SSH_OPTS -o ConnectTimeout=10 "$SSH_USER@$(node_ip "$n")" "$@"; }
+
+# A powered-off node (host reboot, shutdown by hand) used to be "unreachable (left alone)" and the whole
+# CI run then died at the first ssh (runs 297-299, after the host rebooted with all VMs shut off). Start
+# the libvirt domain, if there is one with this name, and wait for ssh before looking at module loads.
+export LIBVIRT_DEFAULT_URI="${LIBVIRT_DEFAULT_URI:-qemu:///system}"
+for n in $NODES; do
+    if virsh dominfo "$n" >/dev/null 2>&1 && ! virsh domstate "$n" 2>/dev/null | grep -q running; then
+        if [ "${DRY_RUN:-0}" = 1 ]; then echo "[health] $n: is shut off, would start it"; continue; fi
+        echo "[health] $n: is shut off, starting the VM"
+        virsh start "$n" >/dev/null 2>&1 || echo "[health] $n: virsh start failed" >&2
+        for _ in $(seq 1 60); do sshn "$n" true >/dev/null 2>&1 && break; sleep 5; done
+        sshn "$n" true >/dev/null 2>&1 && echo "[health] $n: up" || echo "[health] $n: still not reachable after 5 min" >&2
+    fi
+done
 
 for n in $NODES; do
     loads=$(sshn "$n" 'sudo journalctl -b -u mattx --no-pager 2>/dev/null | grep -c "Loading kernel module"; true' 2>/dev/null | head -1)
