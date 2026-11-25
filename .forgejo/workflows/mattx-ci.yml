@@ -91,9 +91,9 @@ jobs:
       - name: Build and deploy to the nodes
         run: cd "$H" && MATTX_SOURCE="${{ inputs.mattx_repo || 'brainmatt/mattx' }}@${{ inputs.mattx_ref || '2.0-dev' }}" MATTX_SRC="$HOME/mattx-src/" make upgrade-alma3
 
-      - name: Functional suites (run-tests, dsm, dsm-rw microscope, stale-link, mesi3, unload, mattxfs-umount, admin-input, threads, epoll-threads)
+      - name: Functional suites (run-tests, dsm, dsm-rw microscope, pipestorm, stale-link, mesi3, unload, mattxfs-umount, admin-input, threads, epoll-threads)
         continue-on-error: true
-        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-alma test-dsm-alma test-dsm-rw-alma test-stale-link-alma test-dsm-mesi3-alma test-unload-alma test-mattxfs-umount-alma test-admin-input-alma test-threads-alma test-epoll-threads-alma
+        run: cd "$H" && MATTX_SRC="$HOME/mattx-src/" make -k test-alma test-dsm-alma test-dsm-rw-alma test-pipestorm-alma test-stale-link-alma test-dsm-mesi3-alma test-unload-alma test-mattxfs-umount-alma test-admin-input-alma test-threads-alma test-epoll-threads-alma
 
       - name: Fetch crash dumps
         if: always()
