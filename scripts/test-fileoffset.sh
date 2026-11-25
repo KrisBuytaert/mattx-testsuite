@@ -7,7 +7,8 @@
 #   - pwrite64()/pread64() on such a descriptor must work (they failed with ESPIPE: the proxy file lacked
 #     FMODE_PREAD/PWRITE), must use the offset of the caller and must not move the position,
 #   - preadv() of the file at an offset must read there too (the iov_iter path).
-# (pread64() of a PIPE after a migration is a separate hang, see mattx#79: not exercised here.)
+#   - pread64() of a PIPE after the migration must fail with ESPIPE, as it does natively (it group-stopped the
+#     process for ever, mattx#79).
 # A small python3 process writes a numbered line to stderr every second, pwrite()s a marker at offset 20 of a second
 # file, pread()s its header back and preadv()s it; it is migrated to node2 and observed for ~15 s.
 set -euo pipefail
@@ -32,7 +33,7 @@ pass() { echo "[PASS] $1"; PASS=$((PASS+1)); }
 fail() { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }
 
 cleanup() {
-    for n in "$NODE1" "$NODE2"; do run_on "$n" "sudo pkill -9 -f '[f]ileoffset-prog.py' 2>/dev/null || true" 2>/dev/null || true; done
+    for n in "$NODE1" "$NODE2"; do run_on "$n" "sudo pkill -9 -f '[f]ileoffset-(prog|pipe).py' 2>/dev/null || true" 2>/dev/null || true; done
 }
 trap cleanup EXIT INT TERM
 
@@ -119,6 +120,36 @@ if echo "$OUT" | tail -3 | grep -q 'preadv=HEADER'; then
     pass "fileoffset: preadv at an offset reads there after the migration"
 else
     fail "fileoffset: preadv at an offset did not read the header after the migration"
+fi
+
+# --- pread64() of a pipe after the migration (mattx#79): must return ESPIPE, not stop the process ---
+cleanup
+run_on "$NODE1" "cat > /tmp/fileoffset-pipe.py" <<'PY'
+import os, sys, time, errno
+r, w = os.pipe()
+i = 0
+while True:
+    i += 1
+    try:
+        os.pread(r, 1, 0); pe = "NOERR"
+    except OSError as e:
+        pe = errno.errorcode.get(e.errno, str(e.errno))
+    sys.stdout.write("%d pipe-pread=%s\n" % (i, pe)); sys.stdout.flush()
+    time.sleep(1)
+PY
+run_on "$NODE1" "rm -f /tmp/fileoffset-pipe.out; nohup python3 -u /tmp/fileoffset-pipe.py > /tmp/fileoffset-pipe.out 2>&1 < /dev/null &" || true
+sleep 5
+PID=$(run_on "$NODE1" "pgrep -f '[f]ileoffset-pipe.py' | head -1" 2>/dev/null || true)
+do_migrate "fileoffset-pipe.py" "$PID" "$NODE1" "$NODE2" "$NODE2_ID" || true
+PRE=$(run_on "$NODE1" "wc -l < /tmp/fileoffset-pipe.out" | tail -1)
+sleep 12
+POST=$(run_on "$NODE1" "wc -l < /tmp/fileoffset-pipe.out" | tail -1)
+STOPPED=$(run_on "$NODE2" "ps -eLo stat=,args= | grep -c '^T.*[f]ileoffset-pipe.py' || true" 2>/dev/null | tail -1)
+HOSTED=$(run_on "$NODE2" "ps -eLo stat=,args= | grep -c '[f]ileoffset-pipe.py' || true" 2>/dev/null | tail -1)
+if [ "$POST" -ge $((PRE + 4)) ] && [ "${STOPPED:-1}" = 0 ] && [ "${HOSTED:-0}" -gt 0 ] && ! run_on "$NODE1" "grep -q NOERR /tmp/fileoffset-pipe.out"; then
+    pass "fileoffset: pread64 of a pipe returns ESPIPE after the migration, process keeps running ($PRE -> $POST lines)"
+else
+    fail "fileoffset: pread64 of a pipe after the migration: $PRE -> $POST lines, $STOPPED thread(s) group-stopped (T) of $HOSTED on $NODE2 (mattx#79)"
 fi
 
 cleanup
